@@ -1,0 +1,8 @@
+# Rust build output
+target/
+
+# Build output
+dist-installer/
+
+# Runtime log files
+*.log
