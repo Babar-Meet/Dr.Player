@@ -267,6 +267,22 @@ video {
     display: block;
 }
 
+.btn-loop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.btn-loop .loop-svg {
+    width: 14px; height: 14px;
+    display: block;
+}
+.btn-loop.active {
+    background: rgba(255,80,80,0.3);
+    border-color: rgba(255,100,100,0.5);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(255,80,80,0.3);
+}
+
 /* ==================== DRAWING OVERLAY ==================== */
 #stage {
     position: absolute;
@@ -482,6 +498,17 @@ body.drawmode #hud {
                 </div>
             </div>
 
+            <button class="btn btn-loop" id="bloop" title="Loop: Off">
+                <svg viewBox="0 0 14 14" class="loop-svg" id="loop-off" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 4h9v7H2V7"/>
+                    <path d="M0.5 8.5L2 7l1.5 1.5"/>
+                </svg>
+                <svg viewBox="0 0 14 14" class="loop-svg" id="loop-on" style="display:none" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 4h9v7H2V4"/>
+                    <path d="M9.5 2.5L11 4l-1.5 1.5"/>
+                    <path d="M3.5 9.5L2 11l1.5 1.5"/>
+                </svg>
+            </button>
             <button class="btn fs-btn" id="bfs" title="Fullscreen">
                 <svg viewBox="0 0 14 14">
                     <path d="M1 1h4v1.5H2.5V5H1V1z
@@ -552,6 +579,7 @@ const hud    = document.getElementById('hud');
 let hideT    = null;
 let uVol     = 1.0;
 let hudLock  = false;
+let loopEnabled = false;
 
 function showUI() {
     if (hudLock || document.body.classList.contains('drawmode')) return;
@@ -766,6 +794,21 @@ document.getElementById('bplay').onclick = () => {
 };
 vid.addEventListener('play', () => document.getElementById('bplay').textContent = '⏸');
 vid.addEventListener('pause', () => document.getElementById('bplay').textContent = '▶');
+
+document.getElementById('bloop').onclick = () => {
+    loopEnabled = !loopEnabled;
+    const btn = document.getElementById('bloop');
+    btn.classList.toggle('active', loopEnabled);
+    document.getElementById('loop-off').style.display = loopEnabled ? 'none' : '';
+    document.getElementById('loop-on').style.display = loopEnabled ? '' : 'none';
+    btn.title = loopEnabled ? 'Loop: On' : 'Loop: Off';
+};
+vid.addEventListener('ended', () => {
+    if (loopEnabled) {
+        vid.currentTime = 0;
+        vid.play();
+    }
+});
 
 /* ====================== FULLSCREEN ====================== */
 document.getElementById('bfs').onclick = () => window.ipc.postMessage('fullscreen');
