@@ -1,10 +1,11 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 const HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Dr.Player</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' http://127.0.0.1:*; media-src http://127.0.0.1:*; connect-src http://127.0.0.1:*; script-src 'unsafe-inline';">
 <style>
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 html, body {
@@ -625,6 +626,8 @@ const RESIZE_MARGIN = 8;
 let resizing = false;
 let resizeDir = '';
 let startX = 0, startY = 0, startW = 0, startH = 0;
+let resizePending = false;
+let resizeW = 0, resizeH = 0;
 
 document.addEventListener('mousemove', (e) => {
     if (resizing) {
@@ -636,10 +639,17 @@ document.addEventListener('mousemove', (e) => {
         if (resizeDir.includes('w')) newW = startW - dx;
         if (resizeDir.includes('s')) newH = startH + dy;
         if (resizeDir.includes('n')) newH = startH - dy;
-        // Only prevent negative/zero sizes by clamping to 1px (otherwise window may disappear)
         newW = Math.max(1, newW);
         newH = Math.max(1, newH);
-        window.ipc.postMessage(`resize:${newW}:${newH}`);
+        resizeW = newW;
+        resizeH = newH;
+        if (!resizePending) {
+            resizePending = true;
+            requestAnimationFrame(() => {
+                resizePending = false;
+                window.ipc.postMessage(`resize:${resizeW}:${resizeH}`);
+            });
+        }
         return;
     }
 
@@ -689,6 +699,17 @@ document.addEventListener('mousedown', (e) => {
 document.addEventListener('mouseup', () => {
     resizing = false;
     resizeDir = '';
+    resizePending = false;
+});
+
+window.addEventListener('blur', () => {
+    resizing = false;
+    resizePending = false;
+    seeking = false;
+    vDrag = false;
+    dragData = null;
+    drawing = false;
+    selShape = null;
 });
 
 /* ====================== WINDOW BUTTONS ====================== */
@@ -770,12 +791,12 @@ document.addEventListener('mousemove', e => { if (vDrag) volFromE(e); });
 document.addEventListener('mouseup',   () => { vDrag = false; });
 
 volIcon.addEventListener('click', () => {
-    if (vid.volume > 0) {
+    if (vid.muted) {
+        vid.muted = false;
+        setVol(uVol || 0.5);
+    } else {
         vid.muted = true;
         volIcon.textContent = '🔇';
-    } else {
-        vid.muted = false;
-        setVol(0.5);
     }
 });
 
@@ -806,16 +827,18 @@ document.getElementById('bloop').onclick = () => {
 vid.addEventListener('ended', () => {
     if (loopEnabled) {
         vid.currentTime = 0;
-        vid.play();
+        vid.play().catch(()=>{});
     }
 });
+vid.onerror = () => {
+    document.getElementById('title').textContent = 'Error loading video';
+};
 
 /* ====================== FULLSCREEN ====================== */
 document.getElementById('bfs').onclick = () => window.ipc.postMessage('fullscreen');
 
 /* ====================== KEYBOARD SHORTCUTS ====================== */
 document.addEventListener('keydown', e => {
-    showUI();
     switch (e.code) {
         case 'Space':      e.preventDefault(); vid.paused ? vid.play() : vid.pause(); break;
         case 'ArrowRight': vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 5); break;
@@ -828,6 +851,7 @@ document.addEventListener('keydown', e => {
         case 'F11':        document.getElementById('bfs').click(); break;
         case 'Escape':     window.ipc.postMessage('exit_fullscreen'); break;
         case 'KeyM':       volIcon.click(); break;
+        case 'KeyL':       document.getElementById('bloop').click(); break;
     }
 });
 
@@ -1096,7 +1120,7 @@ drawCanvas.addEventListener('mousemove', (e) => {
     const s = shapes[shapes.length - 1];
     if (!s || s.type === 'text') { drawing = false; return; }
 
-    if (tool === 'pen') {
+    if (s.type === 'pen') {
         s.points.push({x, y});
     } else {
         s.x2 = x;
@@ -1247,7 +1271,9 @@ struct Args {
 }
 
 use axum::Router;
+use std::time::{Duration, Instant};
 use tower_http::services::ServeFile;
+use rand::Rng;
 
 fn load_icon(bytes: &[u8]) -> Option<Icon> {
     let icon_dir = ico::IconDir::read(std::io::Cursor::new(bytes)).ok()?;
@@ -1268,10 +1294,16 @@ async fn main() -> wry::Result<()> {
         .unwrap_or("Dr.Player")
         .to_string();
 
-    let app = Router::new().nest_service("/video.mp4", ServeFile::new(&path));
+    let token: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(16)
+        .map(char::from)
+        .collect();
+
+    let app = Router::new().nest_service(&format!("/{}", token), ServeFile::new(&path));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    let file_url = format!("http://127.0.0.1:{}/video.mp4", port);
+    let file_url = format!("http://127.0.0.1:{}/{}", port, token);
 
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -1293,17 +1325,22 @@ async fn main() -> wry::Result<()> {
 
     let webview = WebViewBuilder::new(&window)
         .with_html(HTML)
+        .with_devtools(false)
         .with_ipc_handler(move |msg| {
             let _ = proxy.send_event(msg.body().to_string());
         })
         .build()?;
 
-    let filename_js = filename.replace('\'', "\\'");
+    let safe_url = serde_json::to_string(&file_url).unwrap();
+    let safe_title = serde_json::to_string(&filename).unwrap();
     let load_script = format!(
-        "window.loadVideo('{}'); window.setTitle('{}');",
-        file_url, filename_js
+        "window.loadVideo({}); window.setTitle({});",
+        safe_url, safe_title
     );
     let _ = webview.evaluate_script(&load_script);
+
+    let mut last_resize = Instant::now();
+    let resize_cooldown = Duration::from_millis(16);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -1330,9 +1367,14 @@ async fn main() -> wry::Result<()> {
                 } else if msg == "drag_window" {
                     let _ = window.drag_window();
                 } else if msg.starts_with("resize:") {
+                    let now = Instant::now();
+                    if now - last_resize < resize_cooldown { return; }
+                    last_resize = now;
                     let parts: Vec<&str> = msg.split(':').collect();
                     if parts.len() == 3 {
                         if let (Ok(w), Ok(h)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
+                            let w = w.clamp(200.0, 7680.0);
+                            let h = h.clamp(200.0, 4320.0);
                             let _ = window.set_inner_size(tao::dpi::LogicalSize::new(w, h));
                         }
                     }
