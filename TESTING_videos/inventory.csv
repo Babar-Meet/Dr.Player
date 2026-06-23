@@ -1,0 +1,14 @@
+﻿Name,Format,SizeKB,Source
+sample-1mb_alt.mp4,MP4,121,filesfortesting.com
+rabbit320.mp4,MP4,815,MDN/mdn.github.io
+flower.mp4,MP4,1102,MDN/mdn.github.io
+elephants_dream_1024x576_30s.mp4,MP4,15358,archive.org (Blender)
+flower.webm,WebM,541,MDN/mdn.github.io
+rabbit320.webm,WebM,323,MDN/mdn.github.io
+test-vp9.webm,WebM,43,WPT/web-platform-tests
+sample-5s.avi,AVI,317,samplefile.com
+sample-15s.avi,AVI,926,samplefile.com
+sample_640x360.avi,AVI,570,filesamples.com
+sample_1280x720.mov,MOV,17027,testfile.org
+sample_640x360.mkv,MKV,560,filesamples.com
+test1-matroskaconformance.mkv,MKV,22792,Matroska-Org/test-files

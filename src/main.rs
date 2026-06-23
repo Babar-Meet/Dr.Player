@@ -455,7 +455,7 @@ body.drawmode #hud {
 </head>
 <body>
 <div id="stage">
-  <video id="v"></video>
+  <video id="v" playsinline muted autoplay></video>
   <canvas id="draw"></canvas>
 </div>
 
@@ -573,6 +573,18 @@ body.drawmode #hud {
   </div>
 </div>
 
+<!-- Custom text input dialog (replaces window.prompt which crashes on macOS/WKWebView) -->
+<div id="text-dialog" style="display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
+  <div style="background:rgba(30,30,30,0.95);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:24px 28px;min-width:300px;box-shadow:0 16px 48px rgba(0,0,0,0.6);">
+    <div style="color:#fff;font-size:14px;font-weight:500;margin-bottom:14px;">Enter text:</div>
+    <input id="text-dialog-input" type="text" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:14px;outline:none;" autofocus>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+      <button id="text-dialog-cancel" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.7);cursor:pointer;font-size:13px;">Cancel</button>
+      <button id="text-dialog-ok" style="padding:6px 20px;border-radius:8px;border:none;background:#e00;color:#fff;cursor:pointer;font-size:13px;font-weight:500;">OK</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const vid    = document.getElementById('v');
 const topbar = document.getElementById('topbar');
@@ -581,6 +593,54 @@ let hideT    = null;
 let uVol     = 1.0;
 let hudLock  = false;
 let loopEnabled = false;
+
+/* ====================== GLOBAL ERROR HANDLER ====================== */
+window.addEventListener('error', (event) => {
+    console.error('GLOBAL_ERROR', event.message, event.error?.stack);
+    event.preventDefault();
+});
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('UNHANDLED_PROMISE', event.reason);
+    event.preventDefault();
+});
+/* ====================== END GLOBAL ERROR HANDLER ====================== */
+
+/* ====================== TEXT INPUT DIALOG (replaces prompt()) ====================== */
+const textDialog = document.getElementById('text-dialog');
+const textInput = document.getElementById('text-dialog-input');
+let textResolve = null;
+
+document.getElementById('text-dialog-ok').addEventListener('click', () => {
+    textDialog.style.display = 'none';
+    if (textResolve) textResolve(textInput.value);
+    textResolve = null;
+});
+document.getElementById('text-dialog-cancel').addEventListener('click', () => {
+    textDialog.style.display = 'none';
+    if (textResolve) textResolve(null);
+    textResolve = null;
+});
+textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { document.getElementById('text-dialog-ok').click(); }
+    else if (e.key === 'Escape') { document.getElementById('text-dialog-cancel').click(); }
+    e.stopPropagation();
+});
+
+function showTextDialog() {
+    return new Promise((resolve) => {
+        textResolve = resolve;
+        textInput.value = '';
+        textDialog.style.display = 'flex';
+        setTimeout(() => textInput.focus(), 50);
+    });
+}
+/* ====================== CURSOR HELPER (deferred to avoid WKWebView crash on macOS) ====================== */
+function setCanvasCursor(cursor) {
+    requestAnimationFrame(() => {
+        drawCanvas.style.cursor = cursor;
+    });
+}
+/* ====================== END CURSOR HELPER ====================== */
 
 function showUI() {
     if (hudLock || document.body.classList.contains('drawmode')) return;
@@ -839,6 +899,8 @@ document.getElementById('bfs').onclick = () => window.ipc.postMessage('fullscree
 
 /* ====================== KEYBOARD SHORTCUTS ====================== */
 document.addEventListener('keydown', e => {
+    // Bail out early in draw mode — draw mode handles its own keys
+    if (drawbar.classList.contains('open')) return;
     switch (e.code) {
         case 'Space':      e.preventDefault(); vid.paused ? vid.play() : vid.pause(); break;
         case 'ArrowRight': vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 5); break;
@@ -863,7 +925,7 @@ let tool = 'pen';
 let color = '#ff0000';
 let size = 3;
 let drawing = false;
-let drawStartX = 0, drawStartY = 0;
+
 let shapes = [];
 let undoStack = [];
 let redoStack = [];
@@ -992,7 +1054,7 @@ function hitTest(x, y) {
 
 function openDrawMode() {
     drawCanvas.style.pointerEvents = 'auto';
-    drawCanvas.style.cursor = tool === 'hand' ? 'grab' : 'crosshair';
+    setCanvasCursor(tool === 'hand' ? 'grab' : 'crosshair');
     drawbar.style.left = '';
     drawbar.style.top = '';
     drawbar.style.bottom = '';
@@ -1004,16 +1066,16 @@ function openDrawMode() {
 }
 
 function closeDrawMode() {
+    if (drawing) drawing = false;
+    selShape = null;
     shapes = [];
     undoStack = [];
     redoStack = [];
-    selShape = null;
     renderAll();
     drawCanvas.style.pointerEvents = 'none';
-    drawCanvas.style.cursor = 'default';
+    setCanvasCursor('default');
     drawbar.classList.remove('open');
     document.body.classList.remove('drawmode');
-    if (drawing) drawing = false;
 }
 
 document.getElementById('bdraw').addEventListener('click', () => {
@@ -1042,6 +1104,8 @@ document.addEventListener('mouseup', () => { dragData = null; });
 
 drawCanvas.addEventListener('mousedown', (e) => {
     if (!drawbar.classList.contains('open') || e.button !== 0) return;
+    // Ignore canvas clicks while text dialog is open
+    if (textDialog.style.display !== 'none') return;
     e.preventDefault();
     const p = getDrawPos(e);
     const x = p.x, y = p.y;
@@ -1060,7 +1124,7 @@ drawCanvas.addEventListener('mousedown', (e) => {
                 selShapeOffX = x - (selShape.x1 + selShape.x2) / 2;
                 selShapeOffY = y - (selShape.y1 + selShape.y2) / 2;
             }
-            drawCanvas.style.cursor = 'grabbing';
+            setCanvasCursor('grabbing');
             drawing = true;
         }
         return;
@@ -1068,18 +1132,17 @@ drawCanvas.addEventListener('mousedown', (e) => {
 
     if (tool === 'text') {
         saveDrawState();
-        const txt = prompt('Enter text:');
-        if (txt && txt.trim()) {
-            shapes.push({ type: 'text', x, y, text: txt, fontSize: Math.max(12, size * 5), color });
-            renderAll();
-        }
+        showTextDialog().then(txt => {
+            if (txt && txt.trim()) {
+                shapes.push({ type: 'text', x, y, text: txt, fontSize: Math.max(12, size * 5), color });
+                renderAll();
+            }
+        });
         return;
     }
 
     saveDrawState();
     drawing = true;
-    drawStartX = x;
-    drawStartY = y;
     if (tool === 'pen') {
         shapes.push({ type: 'pen', color, size, points: [{x, y}] });
     } else {
@@ -1130,14 +1193,15 @@ drawCanvas.addEventListener('mousemove', (e) => {
 });
 
 drawCanvas.addEventListener('mouseup', (e) => {
-    if (!drawing || e.button !== 0) return;
+    if (!drawing) return;
+    if (e.button !== 0) return;
     drawing = false;
-    if (selShape && tool === 'hand') drawCanvas.style.cursor = 'grab';
+    if (selShape && tool === 'hand') setCanvasCursor('grab');
     selShape = null;
 });
 
 drawCanvas.addEventListener('mouseleave', () => {
-    if (selShape && tool === 'hand') drawCanvas.style.cursor = 'grab';
+    if (selShape && tool === 'hand') setCanvasCursor('grab');
     selShape = null;
     if (drawing) drawing = false;
 });
@@ -1155,13 +1219,7 @@ drawCanvas.addEventListener('wheel', (e) => {
 
 document.querySelectorAll('.dbtn[data-tool]').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.dbtn[data-tool]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        tool = btn.dataset.tool;
-        selShape = null;
-        if (drawbar.classList.contains('open')) {
-            drawCanvas.style.cursor = tool === 'hand' ? 'grab' : 'crosshair';
-        }
+        switchTool(btn.dataset.tool);
     });
 });
 
@@ -1205,23 +1263,45 @@ document.querySelectorAll('.dstep').forEach(btn => {
 document.getElementById('bclose-draw').addEventListener('click', closeDrawMode);
 
 drawCanvas.addEventListener('mouseup', (e) => {
-    if (!drawbar.classList.contains('open')) return;
+    if (!drawbar.classList.contains('open') || drawing) return;
     if (e.button === 3) { undoDraw(); e.preventDefault(); }
     else if (e.button === 4) { redoDraw(); e.preventDefault(); }
 });
 
+function switchTool(t) {
+    if (drawing) {
+        drawing = false;
+        if (shapes.length > 0) {
+            const last = shapes[shapes.length - 1];
+            const incomplete = last.type === 'pen' ? last.points.length <= 1 : (last.x1 === last.x2 && last.y1 === last.y2);
+            if (incomplete) { shapes.pop(); renderAll(); }
+        }
+    }
+    document.querySelectorAll('.dbtn[data-tool]').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`[data-tool="${t}"]`);
+    if (btn) btn.classList.add('active');
+    tool = t;
+    selShape = null;
+    if (drawbar.classList.contains('open')) {
+        setCanvasCursor(t === 'hand' ? 'grab' : 'crosshair');
+    }
+}
+
 document.addEventListener('keydown', (e) => {
     if (!drawbar.classList.contains('open')) return;
     const k = e.key.toLowerCase();
-    if (k === 'p') { document.querySelector('[data-tool="pen"]').click(); e.preventDefault(); }
-    else if (k === 'l') { document.querySelector('[data-tool="line"]').click(); e.preventDefault(); }
-    else if (k === 'a') { document.querySelector('[data-tool="arrow"]').click(); e.preventDefault(); }
-    else if (k === 'r') { document.querySelector('[data-tool="rect"]').click(); e.preventDefault(); }
-    else if (k === 'c') { document.querySelector('[data-tool="circle"]').click(); e.preventDefault(); }
-    else if (k === 'h') { document.querySelector('[data-tool="hand"]').click(); e.preventDefault(); }
+    if (k === 'p') { switchTool('pen'); e.preventDefault(); }
+    else if (k === 'l') { switchTool('line'); e.preventDefault(); }
+    else if (k === 'a') { switchTool('arrow'); e.preventDefault(); }
+    else if (k === 'r') { switchTool('rect'); e.preventDefault(); }
+    else if (k === 'c') { switchTool('circle'); e.preventDefault(); }
+    else if (k === 'h') { switchTool('hand'); e.preventDefault(); }
     else if (k === 'e') { closeDrawMode(); e.preventDefault(); }
     else if (k === 'delete' || k === 'backspace') {
-        if (selShape) {
+        if ((e.ctrlKey || e.metaKey) && drawbar.classList.contains('open')) {
+            e.preventDefault();
+            clearDrawCanvas();
+        } else if (selShape) {
             saveDrawState();
             const idx = shapes.indexOf(selShape);
             if (idx >= 0) { shapes.splice(idx, 1); renderAll(); }
@@ -1236,13 +1316,7 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
     }
 });
-
-document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.code === 'Backspace') {
-        e.preventDefault();
-        if (drawbar.classList.contains('open')) clearDrawCanvas();
-    }
-});
+/* ====================== DRAWING KEYBOARD SHORTCUTS END ====================== */
 
 vid.addEventListener('play', () => {
     if (drawbar.classList.contains('open')) closeDrawMode();
@@ -1271,7 +1345,6 @@ struct Args {
 }
 
 use axum::Router;
-use std::time::{Duration, Instant};
 use tower_http::services::ServeFile;
 use rand::Rng;
 
@@ -1284,6 +1357,11 @@ fn load_icon(bytes: &[u8]) -> Option<Icon> {
 
 #[tokio::main]
 async fn main() -> wry::Result<()> {
+    // Install panic hook for graceful crash handling
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("Dr.Player internal error: {}", info);
+    }));
+
     let args = Args::parse();
 
     let path = std::fs::canonicalize(&args.path).unwrap_or(PathBuf::from(&args.path));
@@ -1323,24 +1401,22 @@ async fn main() -> wry::Result<()> {
         .build(&event_loop)
         .unwrap();
 
-    let webview = WebViewBuilder::new(&window)
+    let safe_url = serde_json::to_string(&file_url).unwrap();
+    let safe_title = serde_json::to_string(&filename).unwrap();
+    let init_script = format!(
+        "window.addEventListener('DOMContentLoaded',function(){{window.loadVideo({});window.setTitle({});}});",
+        safe_url, safe_title
+    );
+
+    let _webview = WebViewBuilder::new(&window)
         .with_html(HTML)
         .with_devtools(false)
+        .with_autoplay(true)
+        .with_initialization_script(&init_script)
         .with_ipc_handler(move |msg| {
             let _ = proxy.send_event(msg.body().to_string());
         })
         .build()?;
-
-    let safe_url = serde_json::to_string(&file_url).unwrap();
-    let safe_title = serde_json::to_string(&filename).unwrap();
-    let load_script = format!(
-        "window.loadVideo({}); window.setTitle({});",
-        safe_url, safe_title
-    );
-    let _ = webview.evaluate_script(&load_script);
-
-    let mut last_resize = Instant::now();
-    let resize_cooldown = Duration::from_millis(16);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -1367,9 +1443,6 @@ async fn main() -> wry::Result<()> {
                 } else if msg == "drag_window" {
                     let _ = window.drag_window();
                 } else if msg.starts_with("resize:") {
-                    let now = Instant::now();
-                    if now - last_resize < resize_cooldown { return; }
-                    last_resize = now;
                     let parts: Vec<&str> = msg.split(':').collect();
                     if parts.len() == 3 {
                         if let (Ok(w), Ok(h)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {

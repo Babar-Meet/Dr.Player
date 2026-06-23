@@ -1,0 +1,26 @@
+#!/bin/sh
+# Pre-commit hook for Dr.Player
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# Check for tab characters
+if grep -rnP '\t' src/ 2>/dev/null; then
+    echo "❌ Tabs found! Use spaces for indentation."
+    exit 1
+fi
+
+# Check that no prompt/alert/confirm is added to JS
+if grep -rnP '(window\.)?(prompt|alert|confirm)\(' src/main.rs 2>/dev/null; then
+    echo "❌ Do not use prompt/alert/confirm — replace with custom dialog."
+    exit 1
+fi
+
+# Run cargo check
+echo "📦 Running cargo check..."
+cargo check 2>/dev/null || {
+    echo "❌ cargo check failed."
+    exit 1
+}
+
+echo "✅ Pre-commit checks passed!"
