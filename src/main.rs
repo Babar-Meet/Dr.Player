@@ -1296,7 +1296,7 @@ document.addEventListener('keydown', (e) => {
     else if (k === 'r') { switchTool('rect'); e.preventDefault(); }
     else if (k === 'c') { switchTool('circle'); e.preventDefault(); }
     else if (k === 'h') { switchTool('hand'); e.preventDefault(); }
-    else if (k === 'e') { closeDrawMode(); e.preventDefault(); }
+    else if (e.key === 'Escape') { closeDrawMode(); e.preventDefault(); }
     else if (k === 'delete' || k === 'backspace') {
         if ((e.ctrlKey || e.metaKey) && drawbar.classList.contains('open')) {
             e.preventDefault();
