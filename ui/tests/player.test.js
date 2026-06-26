@@ -1,5 +1,5 @@
 /**
- * Dr.Player — Regression test suite
+ * Dr.Player - Regression test suite
  *
  * Tests the inline JavaScript drawing state machine, keyboard shortcut
  * isolation, and error-resilience logic that runs inside the WebView.
@@ -7,12 +7,6 @@
  * Setup:
  *   npm install -D vitest jsdom
  *   npx vitest run
- *
- * Vitest config (vitest.config.js):
- *   import { defineConfig } from 'vitest/config';
- *   export default defineConfig({
- *     test: { environment: 'jsdom', include: ['ui/tests/**/*.test.js'] },
- *   });
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -1229,5 +1223,27 @@ describe('Toolbar interactions', () => {
     const closeBtn = document.getElementById('bclose-draw');
     closeBtn.click();
     expect(window.__drawbar().classList.contains('open')).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Volume control tests                                               */
+/* ------------------------------------------------------------------ */
+
+describe('Volume controls', () => {
+  beforeEach(() => {
+    buildDOM();
+    setupPlayerJS();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('vol-slider is always visible (not hidden by default)', () => {
+    const slider = document.getElementById('vol-slider');
+    expect(slider).toBeTruthy();
+    expect(slider.style.width).not.toBe('0');
+    expect(slider.style.opacity).not.toBe('0');
   });
 });

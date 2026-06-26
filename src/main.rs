@@ -237,19 +237,14 @@ video {
 .vol-icon:hover { opacity: 1; }
 
 .vol-slider {
-    width: 0;
+    width: 60px;
     height: 3px;
     background: rgba(255,255,255,0.2);
     border-radius: 2px;
     cursor: pointer;
     position: relative;
     overflow: hidden;
-    transition: width 0.2s, opacity 0.1s;
-    opacity: 0;
-}
-.vol-container:hover .vol-slider {
-    width: 60px;
-    opacity: 1;
+    transition: height 0.12s;
 }
 .vol-slider:hover { height: 5px; }
 
@@ -455,7 +450,7 @@ body.drawmode #hud {
 </head>
 <body>
 <div id="stage">
-  <video id="v" playsinline muted autoplay></video>
+  <video id="v" playsinline></video>
   <canvas id="draw"></canvas>
 </div>
 
@@ -590,9 +585,21 @@ const vid    = document.getElementById('v');
 const topbar = document.getElementById('topbar');
 const hud    = document.getElementById('hud');
 let hideT    = null;
-let uVol     = 1.0;
-let hudLock  = false;
+let uVol      = 1.0;
+let hudLock   = false;
 let loopEnabled = false;
+// Try playback with audio; fall back to muted if browser blocks
+vid.muted = false;
+vid.volume = 1.0;
+let playPromise = vid.play();
+if (playPromise !== undefined) {
+    playPromise.then(() => {
+        if (vid.muted) vid.muted = false;
+    }).catch(() => {
+        vid.muted = true;
+        vid.play().catch(() => {});
+    });
+}
 
 /* ====================== GLOBAL ERROR HANDLER ====================== */
 window.addEventListener('error', (event) => {
@@ -1337,6 +1344,7 @@ use tao::{
     window::{Icon, WindowBuilder, Fullscreen},
 };
 use wry::WebViewBuilder;
+use wry::WebViewBuilderExtWindows;
 
 #[derive(Parser)]
 #[command(name = "dr-player")]
@@ -1408,10 +1416,17 @@ async fn main() -> wry::Result<()> {
         safe_url, safe_title
     );
 
-    let _webview = WebViewBuilder::new(&window)
+    let mut builder = WebViewBuilder::new(&window)
         .with_html(HTML)
         .with_devtools(false)
-        .with_autoplay(true)
+        .with_autoplay(true);
+
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.with_additional_browser_args("--autoplay-policy=no-user-gesture-required");
+    }
+
+    let _webview = builder
         .with_initialization_script(&init_script)
         .with_ipc_handler(move |msg| {
             let _ = proxy.send_event(msg.body().to_string());
