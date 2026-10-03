@@ -18,10 +18,6 @@ html, body {
     -webkit-user-select: none;
     cursor: default;
 }
-/* no show-cur means the chrome is hidden, so the cursor goes with it */
-body:not(.show-cur) {
-    cursor: none;
-}
 
 video {
     position: absolute;
@@ -665,9 +661,9 @@ function setCanvasCursor(cursor) {
 const RESIZE_MARGIN = 8;
 // no pointer position before the first mousemove; the centre is not an edge
 let curX = window.innerWidth / 2, curY = window.innerHeight / 2;
-// The only writer of the body cursor: an inline edge cursor would beat the class rule
+// The only writer of the body cursor: an inline cursor cannot be overruled by a
+// stylesheet rule, so the edge cursors survive the chrome being hidden
 function applyBodyCursor() {
-    if (!topbar.classList.contains('show')) { document.body.style.cursor = ''; return; }
     const w = window.innerWidth;
     const h = window.innerHeight;
     const top = curY < RESIZE_MARGIN;
@@ -689,7 +685,6 @@ function renderHideGlyph() {
 function showControls() {
     topbar.classList.add('show');
     hud.classList.add('show');
-    document.body.classList.add('show-cur');
     renderHideGlyph();
     applyBodyCursor();
 }
@@ -697,7 +692,6 @@ function hideControls() {
     clearTimeout(hideT);
     topbar.classList.remove('show');
     hud.classList.remove('show');
-    document.body.classList.remove('show-cur');
     renderHideGlyph();
     applyBodyCursor();
 }
@@ -707,7 +701,7 @@ function showUI() {
     clearTimeout(hideT);
     hideT = setTimeout(hideControls, 3000);
 }
-// Ctrl+H hides the chrome and brings it back pinned (Cmd on macOS)
+// H hides the chrome and brings it back pinned
 function toggleControls() {
     if (topbar.classList.contains('show') || hud.classList.contains('show')) {
         hudLock = true;
@@ -802,6 +796,21 @@ document.addEventListener('mousedown', (e) => {
         startW = window.outerWidth;
         startH = window.outerHeight;
     }
+});
+
+/* ====================== MOVE THE WINDOW WITH THE CHROME HIDDEN ====================== */
+// With the chrome hidden there is no title bar left to grab, so a press on the stage
+// moves the window instead. Registered after the edge handler above on purpose: that
+// handler sets `resizing` on an edge press, and this one bails out, so resize wins.
+document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (resizing) return;
+    if (drawbar.classList.contains('open')) return;
+    if (textDialog.style.display !== 'none') return;
+    // Only while hidden: with the chrome up, the title bar is the drag affordance
+    if (topbar.classList.contains('show') || hud.classList.contains('show')) return;
+    e.preventDefault();
+    window.ipc.postMessage('drag_window');
 });
 
 document.addEventListener('mouseup', () => {
@@ -955,8 +964,9 @@ document.getElementById('bfs').onclick = () => requestFullscreen(!isFullscreen);
 document.addEventListener('keydown', e => {
     // Bail out early in draw mode — draw mode handles its own keys
     if (drawbar.classList.contains('open')) return;
-    // Ctrl+H toggles the chrome, fullscreen or not (Cmd on macOS)
-    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyH') {
+    // H toggles the chrome, fullscreen or not. No modifier test: this WebView2 never
+    // delivers modified keys to the page, so gating on ctrl/meta made the chord dead.
+    if (e.code === 'KeyH') {
         e.preventDefault();
         toggleControls();
         return;
@@ -1355,8 +1365,7 @@ document.addEventListener('keydown', (e) => {
     else if (k === 'a') { switchTool('arrow'); e.preventDefault(); }
     else if (k === 'r') { switchTool('rect'); e.preventDefault(); }
     else if (k === 'c') { switchTool('circle'); e.preventDefault(); }
-    // A modified h is the controls chord, not the hand tool
-    else if (k === 'h' && !e.ctrlKey && !e.metaKey) { switchTool('hand'); e.preventDefault(); }
+    else if (k === 'h') { switchTool('hand'); e.preventDefault(); }
     else if (e.key === 'Escape') { closeDrawMode(); e.preventDefault(); }
     else if (k === 'delete' || k === 'backspace') {
         if ((e.ctrlKey || e.metaKey) && drawbar.classList.contains('open')) {

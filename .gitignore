@@ -1,6 +1,9 @@
 # Rust build output
 target/
 
+# Node.js
+node_modules/
+
 # Build output
 dist-installer/
 
@@ -13,9 +16,9 @@ dist-installer/
 *.swp
 *.swo
 
-# Node.js
-node_modules/
-
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent working notes
+.opencode/
