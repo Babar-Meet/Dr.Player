@@ -179,6 +179,16 @@ function pressKey(def) {
   );
 }
 
+/** The controls toggle as the player spells it: Ctrl+H. */
+function pressCtrlH() {
+  pressKey({ key: 'h', code: 'KeyH', ctrlKey: true });
+}
+
+/** The same shortcut as macOS sends it, because the page reads either modifier. */
+function pressCmdH() {
+  pressKey({ key: 'h', code: 'KeyH', metaKey: true });
+}
+
 function moveMouse() {
   document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 }
@@ -436,14 +446,9 @@ function setupPlayerJS() {
   const AUTO_HIDE_MS = 3000;
   let chromePinned = false;   // S4: controls the user brought back stay put
   let autoHideTimer = null;
-  // S3a: stands in for "what the window says", which the tests set through
-  // __setFullscreen below. Production gets that from the window instead of
-  // deciding for itself; see the production block at the end of this file.
-  let fullscreen = false;
 
   window.__chromeVisible = () => hud_.classList.contains('show');
   window.__chromePinned = () => chromePinned;
-  window.__setFullscreen = (v) => { fullscreen = v; };
   window.__AUTO_HIDE_MS = AUTO_HIDE_MS;
 
   function hideChrome() {
@@ -470,7 +475,7 @@ function setupPlayerJS() {
     scheduleAutoHide();
   }
 
-  // ESC toggles all three together and locks the new state, so what ESC
+  // Ctrl+H toggles all three together and locks the new state, so what it
   // brings back does not fade away again by itself.
   function toggleChrome() {
     if (window.__chromeVisible()) {
@@ -543,7 +548,7 @@ function setupPlayerJS() {
     else if (k === 'a') { switchTool('arrow'); e.preventDefault(); }
     else if (k === 'r') { switchTool('rect'); e.preventDefault(); }
     else if (k === 'c') { switchTool('circle'); e.preventDefault(); }
-    else if (k === 'h') { switchTool('hand'); e.preventDefault(); }
+    else if (k === 'h' && !e.ctrlKey && !e.metaKey) { switchTool('hand'); e.preventDefault(); }
     else if (k === 'escape') { closeDrawMode(); e.preventDefault(); }
     else if (k === 'delete' || k === 'backspace') {
       if ((e.ctrlKey || e.metaKey) && drawbar_.classList.contains('open')) {
@@ -583,12 +588,12 @@ function setupPlayerJS() {
       case 'Comma':      e.preventDefault(); break;
       case 'KeyF':
       case 'F11':        e.preventDefault(); break;
-      case 'Escape':
-        e.preventDefault();
-        // Fullscreen owns ESC first: leave fullscreen, touch nothing else.
-        if (fullscreen) { window.ipc.postMessage('exit_fullscreen'); break; }
-        toggleChrome();
+      // Ctrl+H toggles the controls, fullscreen or not (Cmd on macOS)
+      case 'KeyH':
+        if (e.ctrlKey || e.metaKey) { e.preventDefault(); toggleChrome(); }
         break;
+      // Escape has one meaning: ask the window to leave fullscreen
+      case 'Escape':     window.ipc.postMessage('exit_fullscreen'); break;
       case 'KeyM':       e.preventDefault(); break;
       case 'KeyL':
         loopEnabled = !loopEnabled;
@@ -622,18 +627,24 @@ function setupPlayerJS() {
     });
   };
 
-  // ---- text dialog handlers (line 613-627) ----
+  // ---- text dialog handlers (line 626-646 of main.rs) ----
   document.getElementById('text-dialog-ok').addEventListener('click', () => {
     textDialog_.style.display = 'none';
+    // Never leave focus parked in an input that is no longer on screen
+    textInput_.blur();
     if (textResolve) textResolve(textInput_.value);
     textResolve = null;
   });
   document.getElementById('text-dialog-cancel').addEventListener('click', () => {
     textDialog_.style.display = 'none';
+    textInput_.blur();
     if (textResolve) textResolve(null);
     textResolve = null;
   });
+  // Keys stay inside the prompt only while it is genuinely open, so a closed
+  // dialog can never swallow a player shortcut, wherever focus happens to sit
   textInput_.addEventListener('keydown', (e) => {
+    if (textDialog_.style.display === 'none') return;
     if (e.key === 'Enter') { document.getElementById('text-dialog-ok').click(); }
     else if (e.key === 'Escape') { document.getElementById('text-dialog-cancel').click(); }
     e.stopPropagation();
@@ -1079,6 +1090,36 @@ describe('Keyboard shortcuts', () => {
     expect(window.__tool()).toBe(toolBefore);
   });
 
+  /* ---------- a modified h belongs to the chrome toggle, not to the toolbar ---------- */
+
+  it.each([
+    ['ctrlKey'],
+    ['metaKey'],
+  ])('draw shortcut h is ignored with %s held, so the hand tool is not selected', (modifier) => {
+    window.__openDrawMode();
+    window.__switchTool('pen');
+    expect(window.__tool()).toBe('pen');
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'h', code: 'KeyH', cancelable: true, bubbles: true, [modifier]: true,
+    });
+    window.__handleDrawKeydown(event);
+
+    expect(window.__tool()).toBe('pen');
+  });
+
+  it('a bare h still selects the hand tool: guarding the shortcut does not disable it', () => {
+    window.__openDrawMode();
+    window.__switchTool('pen');
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'h', code: 'KeyH', cancelable: true, bubbles: true,
+    });
+    window.__handleDrawKeydown(event);
+
+    expect(window.__tool()).toBe('hand');
+  });
+
   it('key "e" is a no-op in draw mode (draw mode is left with Escape)', () => {
     window.__openDrawMode();
     const toolBefore = window.__tool();
@@ -1117,13 +1158,13 @@ describe('Keyboard shortcuts', () => {
 
   /* ---------- Escape exits fullscreen but does NOT interact with draw mode ---------- */
 
-  it('Escape in global handler is always consumed (preventDefault)', () => {
+  it('Escape asks the window to leave fullscreen and toggles nothing', () => {
     const event = new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', cancelable: true, bubbles: true });
-    const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
     window.__handleGlobalKeydown(event);
 
-    // Escape is NOT in draw mode, so the switch runs and consumes the key
-    expect(preventDefaultSpy).toHaveBeenCalled();
+    expect(window.ipc.postMessage).toHaveBeenCalledWith('exit_fullscreen');
+    expect(window.__chromeVisible()).toBe(true);
+    expect(document.body.classList.contains('show-cur')).toBe(true);
   });
 
   it('Escape in the draw handler closes draw mode', () => {
@@ -1147,10 +1188,10 @@ describe('Keyboard shortcuts', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  S1 — ESC hides and restores everything                            */
+/*  S1 — Ctrl+H hides and restores everything                          */
 /* ------------------------------------------------------------------ */
 
-describe('ESC toggles all chrome (S1)', () => {
+describe('Ctrl+H toggles all chrome (S1)', () => {
   beforeEach(() => {
     buildDOM();
     setupPlayerJS();
@@ -1163,39 +1204,39 @@ describe('ESC toggles all chrome (S1)', () => {
 
   /* ---------- happy path: one press takes all three, one brings them back ---------- */
 
-  it('ESC drops show from topbar and hud and show-cur from body', () => {
+  it('Ctrl+H drops show from topbar and hud and show-cur from body', () => {
     expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
     expect(document.body.classList.contains('show-cur')).toBe(true);
 
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
 
     expect(document.getElementById('topbar').classList.contains('show')).toBe(false);
     expect(document.getElementById('hud').classList.contains('show')).toBe(false);
     expect(document.body.classList.contains('show-cur')).toBe(false);
   });
 
-  it('ESC takes the ◎ button with it, because #bhide lives inside #topbar', () => {
+  it('Ctrl+H takes the ◎ button with it, because #bhide lives inside #topbar', () => {
     const topbar = document.getElementById('topbar');
     const bhide = document.getElementById('bhide');
     expect(topbar.contains(bhide)).toBe(true);
     expect(bhide.textContent.trim()).toBe('◎');
 
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
 
     // jsdom has no layout or stylesheet, so "gone" is only observable as the
     // ancestor that carries the class.
     expect(topbar.classList.contains('show')).toBe(false);
 
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
     expect(topbar.classList.contains('show')).toBe(true);
     expect(bhide.isConnected).toBe(true);
   });
 
-  it('the second ESC restores all three and they stay restored', () => {
+  it('the second Ctrl+H restores all three and they stay restored', () => {
     vi.useFakeTimers();
-    pressKey({ key: 'Escape', code: 'Escape' });
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
+    pressCtrlH();
 
     expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
@@ -1208,10 +1249,10 @@ describe('ESC toggles all chrome (S1)', () => {
 
   /* ---------- the three never end up out of step ---------- */
 
-  it('the three states move in lockstep and never split across repeated ESC', () => {
+  it('the three states move in lockstep and never split across repeated Ctrl+H', () => {
     const seen = [];
     for (let i = 0; i < 3; i++) {
-      pressKey({ key: 'Escape', code: 'Escape' });
+      pressCtrlH();
       seen.push([
         document.getElementById('topbar').classList.contains('show'),
         document.getElementById('hud').classList.contains('show'),
@@ -1225,15 +1266,40 @@ describe('ESC toggles all chrome (S1)', () => {
     ]);
   });
 
-  it('ESC keeps alternating for as long as it is pressed', () => {
-    for (let i = 0; i < 4; i++) pressKey({ key: 'Escape', code: 'Escape' });
+  it('Ctrl+H keeps alternating for as long as it is pressed', () => {
+    for (let i = 0; i < 4; i++) pressCtrlH();
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
 
-    for (let i = 0; i < 3; i++) pressKey({ key: 'Escape', code: 'Escape' });
+    for (let i = 0; i < 3; i++) pressCtrlH();
     expect(document.getElementById('hud').classList.contains('show')).toBe(false);
   });
 
-  /* ---------- ESC never throws, whatever state it lands in ---------- */
+  /* ---------- the modifier is part of the shortcut, not decoration ---------- */
+
+  it('a bare, unmodified h does not toggle the controls', () => {
+    pressKey({ key: 'h', code: 'KeyH' });
+
+    expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
+    expect(document.getElementById('hud').classList.contains('show')).toBe(true);
+    expect(document.body.classList.contains('show-cur')).toBe(true);
+    expect(window.ipc.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('Cmd+H toggles the controls exactly as Ctrl+H does, the way Ctrl+Backspace is bound', () => {
+    pressCmdH();
+
+    expect(document.getElementById('topbar').classList.contains('show')).toBe(false);
+    expect(document.getElementById('hud').classList.contains('show')).toBe(false);
+    expect(document.body.classList.contains('show-cur')).toBe(false);
+
+    pressCmdH();
+
+    expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
+    expect(document.getElementById('hud').classList.contains('show')).toBe(true);
+    expect(document.body.classList.contains('show-cur')).toBe(true);
+  });
+
+  /* ---------- Ctrl+H never throws, whatever state it lands in ---------- */
 
   it('toggling from either direction is safe and lands on the opposite state', () => {
     window.__toggleChrome();
@@ -1242,23 +1308,23 @@ describe('ESC toggles all chrome (S1)', () => {
     expect(() => window.__toggleChrome()).not.toThrow();
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
 
-    expect(() => pressKey({ key: 'Escape', code: 'Escape' })).not.toThrow();
+    expect(() => pressCtrlH()).not.toThrow();
     expect(document.getElementById('hud').classList.contains('show')).toBe(false);
   });
 
-  it('ESC pressed twice in one tick lands on the state of two presses', () => {
-    pressKey({ key: 'Escape', code: 'Escape' });
-    pressKey({ key: 'Escape', code: 'Escape' });
+  it('Ctrl+H pressed twice in one tick lands on the state of two presses', () => {
+    pressCtrlH();
+    pressCtrlH();
     expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
     expect(document.body.classList.contains('show-cur')).toBe(true);
   });
 });
 
 /* ------------------------------------------------------------------ */
-/*  S3a — fullscreen owns ESC first                                   */
+/*  S3a — Escape has one meaning: leave fullscreen                     */
 /* ------------------------------------------------------------------ */
 
-describe('ESC priority: fullscreen (S3a)', () => {
+describe('Escape means leave fullscreen and nothing else (S3a)', () => {
   beforeEach(() => {
     buildDOM();
     setupPlayerJS();
@@ -1269,64 +1335,59 @@ describe('ESC priority: fullscreen (S3a)', () => {
     vi.restoreAllMocks();
   });
 
-  it('fullscreen ESC sends exit_fullscreen and changes no class', () => {
-    window.__setFullscreen(true);
-
+  // STORIES.md:31-33 asked Escape to exit fullscreen and then, on the next
+  // press, toggle the controls. The owner moved the controls toggle to
+  // Ctrl+H, so Escape no longer has a second meaning at all and there is no
+  // "second Escape" any more. The host handshake behind exit_fullscreen is
+  // exercised against the shipped page at the end of this file.
+  it('Escape asks the window to leave fullscreen', () => {
     pressKey({ key: 'Escape', code: 'Escape' });
 
     expect(window.ipc.postMessage).toHaveBeenCalledTimes(1);
     expect(window.ipc.postMessage).toHaveBeenCalledWith('exit_fullscreen');
+  });
+
+  it('Escape changes no chrome class, so it can no longer hide the controls', () => {
+    pressKey({ key: 'Escape', code: 'Escape' });
+
     expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
     expect(document.body.classList.contains('show-cur')).toBe(true);
   });
 
-  it('not fullscreen: ESC sends nothing and toggles the controls instead', () => {
-    window.__setFullscreen(false);
-
+  it('Escape does not latch the controls lock, so Ctrl+H is not stuck afterwards', () => {
     pressKey({ key: 'Escape', code: 'Escape' });
 
-    expect(window.ipc.postMessage).not.toHaveBeenCalled();
-    expect(document.getElementById('topbar').classList.contains('show')).toBe(false);
+    expect(window.__chromePinned()).toBe(false);
+
+    pressCtrlH();
     expect(document.getElementById('hud').classList.contains('show')).toBe(false);
-    expect(document.body.classList.contains('show-cur')).toBe(false);
-  });
 
-  it('the ESC after leaving fullscreen is the one that toggles the controls', () => {
-    window.__setFullscreen(true);
-    pressKey({ key: 'Escape', code: 'Escape' });   // leaves fullscreen only
-    window.__setFullscreen(false);                 // the window reports it is windowed
-    pressKey({ key: 'Escape', code: 'Escape' });   // now the chrome moves
-
-    expect(window.ipc.postMessage).toHaveBeenCalledTimes(1);
-    expect(document.getElementById('hud').classList.contains('show')).toBe(false);
-    expect(document.getElementById('topbar').classList.contains('show')).toBe(false);
-  });
-
-  // STORIES.md:31-33: while fullscreen, "ESC exits fullscreen and does nothing
-  // else. The next ESC toggles the controls." One press, one exit request. The
-  // old version of this test wanted two exit_fullscreen posts from two presses,
-  // which is a state the code cannot be in: the first press already takes the
-  // window out of fullscreen. Copy-level like its neighbours, and the same two
-  // presses are run against src/main.rs in the block at the end of this file.
-  it('the first ESC requests the exit and touches nothing; the next ESC toggles the controls', () => {
-    window.__setFullscreen(true);
-
-    pressKey({ key: 'Escape', code: 'Escape' });
-
-    expect(window.ipc.postMessage).toHaveBeenCalledTimes(1);
-    expect(window.ipc.postMessage).toHaveBeenCalledWith('exit_fullscreen');
-    expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
+    pressCtrlH();
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
-    expect(document.body.classList.contains('show-cur')).toBe(true);
+  });
 
-    window.__setFullscreen(false);                 // the window reports it is windowed
+  // The two-press sequence this block used to assert: the first Escape spends
+  // itself on the exit request, and the next one was the controls toggle. With
+  // one meaning per key the second press is just a second request.
+  it('two Escapes ask twice and toggle nothing', () => {
+    pressKey({ key: 'Escape', code: 'Escape' });
     pressKey({ key: 'Escape', code: 'Escape' });
 
-    expect(window.ipc.postMessage).toHaveBeenCalledTimes(1);
-    expect(document.getElementById('topbar').classList.contains('show')).toBe(false);
-    expect(document.getElementById('hud').classList.contains('show')).toBe(false);
-    expect(document.body.classList.contains('show-cur')).toBe(false);
+    expect(window.ipc.postMessage).toHaveBeenCalledTimes(2);
+    expect(window.ipc.postMessage).toHaveBeenCalledWith('exit_fullscreen');
+    expect(document.getElementById('hud').classList.contains('show')).toBe(true);
+    expect(document.getElementById('topbar').classList.contains('show')).toBe(true);
+    expect(document.body.classList.contains('show-cur')).toBe(true);
+  });
+
+  it('the page does not swallow Escape: the webview still receives it', () => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape', code: 'Escape', cancelable: true, bubbles: true,
+    });
+    document.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
   });
 });
 
@@ -1381,13 +1442,22 @@ describe('ESC priority: draw mode (S3b)', () => {
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
   });
 
-  it('only the next ESC after draw mode closed toggles the controls', () => {
+  it('after Escape closes draw mode, another Escape still does not toggle the controls', () => {
     window.__openDrawMode();
     pressKey({ key: 'Escape', code: 'Escape' });
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
 
     pressKey({ key: 'Escape', code: 'Escape' });
-    expect(document.getElementById('hud').classList.contains('show')).toBe(false);
+    expect(document.getElementById('hud').classList.contains('show')).toBe(true);
+  });
+
+  it('Ctrl+H is still inert while draw mode is open, so drawing keeps the canvas', () => {
+    window.__openDrawMode();
+
+    pressCtrlH();
+
+    expect(window.__drawbar().classList.contains('open')).toBe(true);
+    expect(document.body.classList.contains('drawmode')).toBe(true);
   });
 });
 
@@ -1420,7 +1490,7 @@ describe('ESC priority: Enter text dialog (S3c)', () => {
     expect(document.body.classList.contains('show-cur')).toBe(true);
   });
 
-  it('the text box swallows exactly one ESC: the next one toggles the controls', () => {
+  it('the text box swallows exactly one ESC, and the next one still does not toggle the controls', () => {
     const dialog = document.getElementById('text-dialog');
     const input = document.getElementById('text-dialog-input');
     dialog.style.display = 'flex';
@@ -1431,15 +1501,39 @@ describe('ESC priority: Enter text dialog (S3c)', () => {
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
 
     pressKey({ key: 'Escape', code: 'Escape' });
-    expect(document.getElementById('hud').classList.contains('show')).toBe(false);
+    expect(document.getElementById('hud').classList.contains('show')).toBe(true);
+  });
+
+  it('the prompt owns its keys while it is open, and hands them back once closed', () => {
+    const input = document.getElementById('text-dialog-input');
+    const seen = [];
+    const spy = (e) => seen.push(e.code);
+    document.addEventListener('keydown', spy);
+
+    // Closed: the dialog has never been opened, so its listener must not
+    // consume anything and the key has to reach the page.
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'a', code: 'KeyA', bubbles: true, cancelable: true,
+    }));
+    expect(seen).toEqual(['KeyA']);
+
+    // Open: the same key belongs to the prompt.
+    seen.length = 0;
+    document.getElementById('text-dialog').style.display = 'flex';
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'a', code: 'KeyA', bubbles: true, cancelable: true,
+    }));
+    expect(seen).toEqual([]);
+
+    document.removeEventListener('keydown', spy);
   });
 });
 
 /* ------------------------------------------------------------------ */
-/*  S4 — chrome brought back by ESC stays put                         */
+/*  S4 — chrome brought back by Ctrl+H stays put                       */
 /* ------------------------------------------------------------------ */
 
-describe('ESC-restored chrome does not fade on its own (S4)', () => {
+describe('Ctrl+H-restored chrome does not fade on its own (S4)', () => {
   beforeEach(() => {
     buildDOM();
     setupPlayerJS();
@@ -1450,10 +1544,10 @@ describe('ESC-restored chrome does not fade on its own (S4)', () => {
     vi.restoreAllMocks();
   });
 
-  it('chrome ESC brought back is still there after 5s of no input', () => {
+  it('chrome Ctrl+H brought back is still there after 5s of no input', () => {
     vi.useFakeTimers();
-    pressKey({ key: 'Escape', code: 'Escape' });
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
+    pressCtrlH();
 
     vi.advanceTimersByTime(2500);
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
@@ -1466,8 +1560,8 @@ describe('ESC-restored chrome does not fade on its own (S4)', () => {
 
   it('a mousemove clears the pin and the chrome auto-hides again one window later', () => {
     vi.useFakeTimers();
-    pressKey({ key: 'Escape', code: 'Escape' });
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
+    pressCtrlH();
 
     moveMouse();
     expect(window.__chromePinned()).toBe(false);
@@ -1481,9 +1575,9 @@ describe('ESC-restored chrome does not fade on its own (S4)', () => {
     expect(document.body.classList.contains('show-cur')).toBe(false);
   });
 
-  it('ESC does not clear the pin: after four presses the chrome is still up at 5s', () => {
+  it('Ctrl+H does not clear the pin: after four presses the chrome is still up at 5s', () => {
     vi.useFakeTimers();
-    for (let i = 0; i < 4; i++) pressKey({ key: 'Escape', code: 'Escape' });
+    for (let i = 0; i < 4; i++) pressCtrlH();
 
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
     expect(window.__chromePinned()).toBe(true);
@@ -1492,10 +1586,10 @@ describe('ESC-restored chrome does not fade on its own (S4)', () => {
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
   });
 
-  it('ESC does not clear the pin, so the first mousemove is what restarts auto-hide', () => {
+  it('Ctrl+H does not clear the pin, so the first mousemove is what restarts auto-hide', () => {
     vi.useFakeTimers();
-    pressKey({ key: 'Escape', code: 'Escape' });
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
+    pressCtrlH();
 
     moveMouse();
     vi.advanceTimersByTime(window.__AUTO_HIDE_MS + 1);
@@ -1503,9 +1597,9 @@ describe('ESC-restored chrome does not fade on its own (S4)', () => {
     expect(document.getElementById('hud').classList.contains('show')).toBe(false);
   });
 
-  it('chrome hidden by ESC stays hidden, the timer never brings it back', () => {
+  it('chrome hidden by Ctrl+H stays hidden, the timer never brings it back', () => {
     vi.useFakeTimers();
-    pressKey({ key: 'Escape', code: 'Escape' });
+    pressCtrlH();
 
     vi.advanceTimersByTime(5000);
 
@@ -1833,12 +1927,12 @@ describe('Volume controls', () => {
 /*  S2 — an ESC from another app can never reach the player           */
 /* ------------------------------------------------------------------ */
 
-describe('ESC never escapes the webview (S2)', () => {
+describe('A shortcut never escapes the webview (S2)', () => {
   // jsdom cannot move keyboard focus to another window, so "the user is in
   // File Explorer and presses ESC" is not observable here. What S2's
   // "Known when" actually claims is a property of the project: no global or
-  // OS-level hotkey is registered anywhere, so an ESC only exists inside the
-  // webview while the Dr.Player window has focus. That half is testable.
+  // OS-level hotkey is registered anywhere, so a keypress only exists inside
+  // the webview while the Dr.Player window has focus. That half is testable.
   const OS_HOOKS = [
     'global_hotkey', 'global-hotkey', 'global_hotkeys',
     'global_shortcut', 'global-shortcut', 'globalShortcut',
@@ -1885,8 +1979,8 @@ describe('ESC never escapes the webview (S2)', () => {
     expect(hits).toEqual([]);
   });
 
-  it('the chrome toggle is local DOM state: ESC posts nothing to the Rust side', () => {
-    pressKey({ key: 'Escape', code: 'Escape' });
+  it('the chrome toggle is local DOM state: Ctrl+H posts nothing to the Rust side', () => {
+    pressCtrlH();
 
     expect(window.ipc.postMessage).not.toHaveBeenCalled();
     expect(document.getElementById('hud').classList.contains('show')).toBe(false);
@@ -1894,7 +1988,7 @@ describe('ESC never escapes the webview (S2)', () => {
 
   it('a keypress only acts through a DOM keydown: a keyup changes nothing', () => {
     document.dispatchEvent(new KeyboardEvent('keyup', {
-      key: 'Escape', code: 'Escape', bubbles: true,
+      key: 'h', code: 'KeyH', ctrlKey: true, bubbles: true,
     }));
 
     expect(document.getElementById('hud').classList.contains('show')).toBe(true);
@@ -1917,7 +2011,10 @@ describe('ESC never escapes the webview (S2)', () => {
  * "keypresses" are DOM events inside that page.
  */
 
-const MAIN_RS = path.join(REPO_ROOT, 'src', 'main.rs');
+// The override exists so the same suite can be run against a historical copy of
+// the page outside the repo, which is how the text-dialog regression below is
+// shown failing before its fix and passing after. Nothing sets it in normal use.
+const MAIN_RS = process.env.DRPLAYER_MAIN_RS || path.join(REPO_ROOT, 'src', 'main.rs');
 
 /** The shipped document, taken from the raw string in src/main.rs. */
 function shippedHTML() {
@@ -1986,6 +2083,38 @@ function bootShippedPlayer() {
       doc.dispatchEvent(new win.KeyboardEvent('keydown', {
         key: 'Escape', code: 'Escape', bubbles: true, cancelable: true,
       }));
+    },
+    /** The controls toggle: Ctrl+H, and Cmd+H on macOS. */
+    modifiedH(modifier) {
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'h', code: 'KeyH', bubbles: true, cancelable: true, [modifier]: true,
+      }));
+    },
+    /** A bare h, the key draw mode binds to the hand tool. */
+    bareH() {
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'h', code: 'KeyH', bubbles: true, cancelable: true,
+      }));
+    },
+    /** Computed style of the ancestor the controls and ◎ button live in. */
+    topbarStyle(prop) { return win.getComputedStyle(doc.getElementById('topbar'))[prop]; },
+    hudStyle(prop) { return win.getComputedStyle(doc.getElementById('hud'))[prop]; },
+    /** The Enter text prompt, opened the way the page opens it. */
+    prompt() { return win.showTextDialog(); },
+    openPrompt() { doc.getElementById('text-dialog').style.display = 'flex'; },
+    textInput() { return doc.getElementById('text-dialog-input'); },
+    /** A keydown on a specific element, so propagation decides the outcome. */
+    pressOn(node, def) {
+      node.dispatchEvent(new win.KeyboardEvent('keydown', {
+        bubbles: true, cancelable: true, ...def,
+      }));
+    },
+    // The focused element's id, not the element: a failing assertion on a jsdom
+    // node is serialised by walking the DOM, which throws instead of reporting.
+    focusedId() { return doc.activeElement && doc.activeElement.id; },
+    activeTool() {
+      const btn = doc.querySelector('.dbtn.active[data-tool]');
+      return btn && btn.dataset.tool;
     },
     mousemove(clientX, clientY) {
       doc.dispatchEvent(new win.MouseEvent('mousemove', {
@@ -2079,12 +2208,12 @@ describe('the shipped page (src/main.rs)', () => {
     const cursorWithChrome = page.cursor();
     expect(cursorWithChrome).not.toBe('none');
 
-    page.escape();
+    page.modifiedH('ctrlKey');
 
     expect(page.chromeVisible()).toBe(false);
     expect(page.cursor()).toBe('none');
 
-    page.escape();
+    page.modifiedH('ctrlKey');
 
     expect(page.chromeVisible()).toBe(true);
     expect(page.cursor()).toBe(cursorWithChrome);
@@ -2097,13 +2226,13 @@ describe('the shipped page (src/main.rs)', () => {
     // asks for `nwse-resize`. While the chrome is hidden that cursor must not
     // appear, which it does today because the handler writes it as an inline
     // style on <body> and an inline style outranks the class rule.
-    page.escape();
+    page.modifiedH('ctrlKey');
     page.mousemove(2, 2);
     expect(page.cursor()).toBe('none');
 
     // Unhidden, the same corner must still offer the resize cursor: S1 hides
     // the cursor, it does not disable resizing.
-    page.escape();
+    page.modifiedH('ctrlKey');
     page.mousemove(2, 2);
     expect(page.cursor()).toBe('nwse-resize');
   });
@@ -2125,71 +2254,76 @@ describe('the shipped page (src/main.rs)', () => {
     expect(page.cursor()).not.toBe('none');
   });
 
-  /* ---------- Defect B: a stale fullscreen flag ate the ESC ---------- */
+  /* ---------- Defect B: the fullscreen state the host reports ---------- */
 
-  it('a fullscreen request that never took effect does not turn ESC into a dead key', () => {
+  it('a fullscreen request that never took effect does not stop Ctrl+H from toggling', () => {
     const page = open();
     page.click('bfs');
     expect(page.posts).toEqual(['fullscreen']);
 
     // The window never confirmed anything: it is still windowed and the page
-    // was not told. ESC belongs to the controls, and must not be spent on an
-    // exit request for a window that is not fullscreen.
-    page.escape();
+    // was not told. Ctrl+H is only a controls toggle, so it must not care.
+    page.modifiedH('ctrlKey');
 
     expect(page.chromeVisible()).toBe(false);
     expect(page.posts).toEqual(['fullscreen']);
   });
 
-  it('while the window reports fullscreen, ESC asks it to leave and touches nothing else', () => {
+  it('the window reports the fullscreen state the FS button acts on', () => {
     // A host reporting a state sends nothing and asks for nothing: the page
     // has to reach "the window is fullscreen" from the report alone. Both
     // directions are tried on a page of their own, so a function that merely
-    // requests fullscreen is not mistaken for one that reports it.
+    // requests fullscreen is not mistaken for one that reports it. The FS
+    // button is what proves the report landed, now that Escape is unconditional.
     const attempts = fullscreenPushAttempts(open().window);
     const push = attempts.find((attempt) => {
       const full = open();
       attempt.apply(full, true);
       if (full.posts.length) return false;
-      full.escape();
+      full.click('bfs');
       if (full.posts.length !== 1 || full.posts[0] !== 'exit_fullscreen') return false;
-      if (full.chromeVisible() !== true) return false;
 
       const windowed = open();
       attempt.apply(windowed, false);
       if (windowed.posts.length) return false;
-      windowed.escape();
-      return windowed.posts.length === 0 && windowed.chromeVisible() === false;
+      windowed.click('bfs');
+      return windowed.posts.length === 1 && windowed.posts[0] === 'fullscreen';
     });
 
     const tried = attempts.map((a) => a.label).join(', ')
       || 'nothing on window matched /fullscreen/';
     expect(push, `the page exposes no way for the host to report the window's fullscreen state; tried: ${tried}`)
       .toBeTruthy();
+  });
 
+  it('Escape asks the window to leave fullscreen and touches nothing else', () => {
     const page = open();
-    push.apply(page, true);
+
     page.escape();
 
     expect(page.posts).toEqual(['exit_fullscreen']);
     expect(page.chromeVisible()).toBe(true);
     expect(page.cursor()).not.toBe('none');
+  });
 
-    // S3a: the next ESC is the one that toggles the controls, and it must not
-    // ask for the exit a second time.
-    push.apply(page, false);
-    page.escape();
+  it('no number of Escapes ever toggles the controls', () => {
+    const page = open();
 
-    expect(page.posts).toEqual(['exit_fullscreen']);
-    expect(page.chromeVisible()).toBe(false);
+    for (let i = 0; i < 5; i++) {
+      page.escape();
+      expect(page.chromeVisible()).toBe(true);
+    }
+
+    expect(page.posts).toEqual(['exit_fullscreen', 'exit_fullscreen',
+      'exit_fullscreen', 'exit_fullscreen', 'exit_fullscreen']);
   });
 
   it('the page never decides the fullscreen state for itself', () => {
     const { rust, script } = shippedBlocks();
 
     // A page that flips its own flag before the window has agreed is the
-    // defect: the flag can then disagree with the window and ESC is spent on
-    // a request for a state the window is not in.
+    // defect: the flag can then disagree with the window and the FS button
+    // ends up asking for a state the window is not in.
     expect(script).not.toMatch(/([A-Za-z_$][\w$]*[Ff]ullscreen[A-Za-z_$]*)\s*=\s*!\s*\1/);
     // So the window side has to hand the real state down.
     expect(rust).toMatch(/evaluate_script[^;]{0,300}fullscreen/is);
@@ -2209,7 +2343,7 @@ describe('the shipped page (src/main.rs)', () => {
 
   /* ---------- Defect C: the ◎ glyph fell behind the screen ---------- */
 
-  it('click ◎ then ESC then click ◎ leaves the glyph agreeing with the screen', () => {
+  it('click ◎ then Ctrl+H then click ◎ leaves the glyph agreeing with the screen', () => {
     const page = open();
     expect(page.chromeVisible()).toBe(true);
     expect(page.glyph()).toBe('◎');
@@ -2218,9 +2352,9 @@ describe('the shipped page (src/main.rs)', () => {
     expect(page.chromeVisible()).toBe(false);
     expect(page.glyph()).toBe('◌');
 
-    // ESC brings the chrome back unlocked, so the button has to offer "hide"
+    // Ctrl+H brings the chrome back unlocked, so the button has to offer "hide"
     // again rather than keep saying "show".
-    page.escape();
+    page.modifiedH('ctrlKey');
     expect(page.chromeVisible()).toBe(true);
     expect(page.glyph()).toBe('◎');
 
@@ -2229,19 +2363,247 @@ describe('the shipped page (src/main.rs)', () => {
     expect(page.glyph()).toBe('◌');
   });
 
-  it('the glyph matches what is on screen at every press, ESC and click alike', () => {
+  it('the glyph matches what is on screen at every press, Ctrl+H and click alike', () => {
     const page = open();
     const expected = () => (page.chromeVisible() ? '◎' : '◌');
 
     for (let i = 0; i < 4; i++) {
-      page.escape();
+      const wasVisible = page.chromeVisible();
+
+      page.modifiedH('ctrlKey');
+      expect(page.chromeVisible()).toBe(!wasVisible);
       expect(page.glyph()).toBe(expected());
+
       page.click('bhide');
+      expect(page.chromeVisible()).toBe(wasVisible);
       expect(page.glyph()).toBe(expected());
     }
   });
 
-  /* ---------- S2: ESC is still answered from inside the webview ---------- */
+  /* ---------- Ctrl+H: the controls toggle the owner actually uses ---------- */
+
+  it('Ctrl+H takes the topbar, the hud, the cursor and the ◎ button with it', () => {
+    const page = open();
+    const topbar = page.document.getElementById('topbar');
+    const hud = page.document.getElementById('hud');
+    const bhide = page.document.getElementById('bhide');
+    expect(topbar.contains(bhide)).toBe(true);
+    expect(page.topbarStyle('opacity')).toBe('1');
+    expect(page.topbarStyle('pointerEvents')).toBe('auto');
+
+    page.modifiedH('ctrlKey');
+
+    expect(topbar.classList.contains('show')).toBe(false);
+    expect(hud.classList.contains('show')).toBe(false);
+    expect(page.document.body.classList.contains('show-cur')).toBe(false);
+    expect(page.cursor()).toBe('none');
+
+    // ◎ goes off screen with its ancestor, not on its own account: the shipped
+    // stylesheet gives `#topbar` no opacity and no pointer events once `show`
+    // is gone, so nothing inside it can be seen or pressed.
+    expect(page.topbarStyle('opacity')).toBe('0');
+    expect(page.topbarStyle('pointerEvents')).toBe('none');
+    expect(page.hudStyle('opacity')).toBe('0');
+    expect(page.hudStyle('pointerEvents')).toBe('none');
+
+    page.modifiedH('ctrlKey');
+
+    expect(topbar.classList.contains('show')).toBe(true);
+    expect(hud.classList.contains('show')).toBe(true);
+    expect(page.document.body.classList.contains('show-cur')).toBe(true);
+    expect(page.topbarStyle('opacity')).toBe('1');
+    expect(page.topbarStyle('pointerEvents')).toBe('auto');
+  });
+
+  it('Cmd+H toggles the controls exactly as Ctrl+H does, the way Ctrl+Backspace is bound', () => {
+    const page = open();
+
+    page.modifiedH('metaKey');
+
+    expect(page.chromeVisible()).toBe(false);
+    expect(page.cursor()).toBe('none');
+
+    page.modifiedH('metaKey');
+
+    expect(page.chromeVisible()).toBe(true);
+    expect(page.cursor()).not.toBe('none');
+  });
+
+  it('Ctrl+H never asks the window to leave fullscreen, fullscreen or not', () => {
+    // Find the window's own fullscreen report by behaviour: a reporter posts
+    // nothing when called, a function that merely requests fullscreen posts at
+    // once, so the two cannot be mistaken for each other.
+    const reporter = fullscreenPushAttempts(open().window).find((attempt) => {
+      const page = open();
+      attempt.apply(page, true);
+      return page.posts.length === 0;
+    });
+    expect(reporter, 'no window entry point reports the fullscreen state').toBeTruthy();
+
+    const full = open();
+    reporter.apply(full, true);
+    expect(full.posts).toEqual([]);
+    full.click('bfs');
+    // The report landed: the FS button now offers to leave.
+    expect(full.posts).toEqual(['exit_fullscreen']);
+
+    full.posts.length = 0;
+    full.modifiedH('ctrlKey');
+    expect(full.chromeVisible()).toBe(false);
+    expect(full.posts).toEqual([]);
+
+    const windowed = open();
+    windowed.modifiedH('ctrlKey');
+    expect(windowed.chromeVisible()).toBe(false);
+    expect(windowed.posts).toEqual([]);
+  });
+
+  it('a bare, unmodified h does not toggle the controls', () => {
+    const page = open();
+
+    page.bareH();
+
+    expect(page.chromeVisible()).toBe(true);
+    expect(page.document.getElementById('drawbar').classList.contains('open')).toBe(false);
+    expect(page.posts).toEqual([]);
+
+    // Only the modified key is the shortcut, and it still works afterwards.
+    page.modifiedH('ctrlKey');
+    expect(page.chromeVisible()).toBe(false);
+  });
+
+  it('Ctrl+H does not select the hand tool while draw mode is open', () => {
+    const page = open();
+    page.click('bdraw');
+    expect(page.document.getElementById('drawbar').classList.contains('open')).toBe(true);
+    expect(page.activeTool()).toBe('pen');
+
+    page.modifiedH('ctrlKey');
+
+    expect(page.activeTool()).toBe('pen');
+    expect(page.document.getElementById('drawbar').classList.contains('open')).toBe(true);
+  });
+
+  it('a bare h still selects the hand tool while draw mode is open', () => {
+    const page = open();
+    page.click('bdraw');
+
+    page.bareH();
+
+    expect(page.activeTool()).toBe('hand');
+  });
+
+  /* ---------- Defect D: a hidden prompt swallowed every keyboard shortcut ---------- */
+
+  it('the shipped text input carries no autofocus', () => {
+    const page = open();
+
+    expect(page.textInput().hasAttribute('autofocus')).toBe(false);
+    // The dialog is display:none as shipped, so an autofocus here parks
+    // keyboard focus in an element the user cannot see.
+    expect(page.document.getElementById('text-dialog').style.display).toBe('none');
+    expect(shippedHTML()).not.toMatch(/autofocus/i);
+  });
+
+  it('a key on the closed prompt still reaches document', () => {
+    const page = open();
+    const input = page.textInput();
+    const seen = [];
+    page.document.addEventListener('keydown', (e) => seen.push(e.code));
+
+    // jsdom does not reproduce a webview honouring `autofocus` on a hidden
+    // element, so the accident is staged by focusing the input by hand. What
+    // this pins is the invariant, not autofocus: a prompt that is not open
+    // must never be able to swallow a key, wherever focus happens to sit.
+    input.focus();
+    expect(page.focusedId()).toBe('text-dialog-input');
+
+    page.pressOn(input, { key: 'a', code: 'KeyA' });
+
+    expect(seen).toEqual(['KeyA']);
+  });
+
+  it('a player shortcut still works while focus is parked in the closed prompt', () => {
+    const page = open();
+    const input = page.textInput();
+
+    // This is the shape of the bug the owner hit: nothing threw, the mouse
+    // still worked, and every keystroke quietly died in a hidden input.
+    input.focus();
+    page.pressOn(input, { key: 'h', code: 'KeyH', ctrlKey: true });
+
+    expect(page.chromeVisible()).toBe(false);
+  });
+
+  it('keys do not leak out of an open prompt', () => {
+    const page = open();
+    const seen = [];
+    page.document.addEventListener('keydown', (e) => seen.push(e.code));
+
+    page.openPrompt();
+    const input = page.textInput();
+    input.focus();
+
+    page.pressOn(input, { key: 'a', code: 'KeyA' });
+
+    expect(seen).toEqual([]);
+  });
+
+  it('Cancel leaves no focus parked in the input', () => {
+    const page = open();
+    page.openPrompt();
+    const input = page.textInput();
+    input.focus();
+    expect(page.focusedId()).toBe('text-dialog-input');
+
+    page.click('text-dialog-cancel');
+
+    expect(page.document.getElementById('text-dialog').style.display).toBe('none');
+    expect(page.focusedId()).not.toBe('text-dialog-input');
+  });
+
+  it('OK leaves no focus parked in the input', () => {
+    const page = open();
+    page.openPrompt();
+    const input = page.textInput();
+    input.value = 'kept';
+    input.focus();
+    expect(page.focusedId()).toBe('text-dialog-input');
+
+    page.click('text-dialog-ok');
+
+    expect(page.document.getElementById('text-dialog').style.display).toBe('none');
+    expect(page.focusedId()).not.toBe('text-dialog-input');
+  });
+
+  it('Enter confirms the prompt with the text that was typed', async () => {
+    const page = open();
+    const answer = page.prompt();
+    const input = page.textInput();
+    input.value = 'Dr.Player';
+    input.focus();
+
+    page.pressOn(input, { key: 'Enter', code: 'Enter' });
+
+    expect(await answer).toBe('Dr.Player');
+    expect(page.chromeVisible()).toBe(true);
+  });
+
+  it('Escape cancels the prompt with nothing and does not toggle the controls', async () => {
+    const page = open();
+    const answer = page.prompt();
+    const input = page.textInput();
+    input.value = 'discarded';
+    input.focus();
+
+    page.pressOn(input, { key: 'Escape', code: 'Escape' });
+
+    expect(await answer).toBeNull();
+    expect(page.chromeVisible()).toBe(true);
+    expect(page.posts).toEqual([]);
+  });
+
+  /* ---------- S2: every shortcut is still answered from inside the webview ---------- */
 
   it('Cargo.toml still carries no global or OS hotkey dependency', () => {
     const cargo = fs.readFileSync(path.join(REPO_ROOT, 'Cargo.toml'), 'utf8');

@@ -576,7 +576,7 @@ body.drawmode #hud {
 <div id="text-dialog" style="display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
   <div style="background:rgba(30,30,30,0.95);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:24px 28px;min-width:300px;box-shadow:0 16px 48px rgba(0,0,0,0.6);">
     <div style="color:#fff;font-size:14px;font-weight:500;margin-bottom:14px;">Enter text:</div>
-    <input id="text-dialog-input" type="text" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:14px;outline:none;" autofocus>
+    <input id="text-dialog-input" type="text" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:14px;outline:none;">
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
       <button id="text-dialog-cancel" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.7);cursor:pointer;font-size:13px;">Cancel</button>
       <button id="text-dialog-ok" style="padding:6px 20px;border-radius:8px;border:none;background:#e00;color:#fff;cursor:pointer;font-size:13px;font-weight:500;">OK</button>
@@ -623,17 +623,23 @@ const textDialog = document.getElementById('text-dialog');
 const textInput = document.getElementById('text-dialog-input');
 let textResolve = null;
 
-document.getElementById('text-dialog-ok').addEventListener('click', () => {
+function closeTextDialog(result) {
     textDialog.style.display = 'none';
-    if (textResolve) textResolve(textInput.value);
+    // Never leave focus parked in an input that is no longer on screen
+    textInput.blur();
+    if (textResolve) textResolve(result);
     textResolve = null;
+}
+document.getElementById('text-dialog-ok').addEventListener('click', () => {
+    closeTextDialog(textInput.value);
 });
 document.getElementById('text-dialog-cancel').addEventListener('click', () => {
-    textDialog.style.display = 'none';
-    if (textResolve) textResolve(null);
-    textResolve = null;
+    closeTextDialog(null);
 });
+// Keys stay inside the prompt only while it is genuinely open, so a closed
+// dialog can never swallow a player shortcut, wherever focus happens to sit
 textInput.addEventListener('keydown', (e) => {
+    if (textDialog.style.display === 'none') return;
     if (e.key === 'Enter') { document.getElementById('text-dialog-ok').click(); }
     else if (e.key === 'Escape') { document.getElementById('text-dialog-cancel').click(); }
     e.stopPropagation();
@@ -701,7 +707,7 @@ function showUI() {
     clearTimeout(hideT);
     hideT = setTimeout(hideControls, 3000);
 }
-// Escape hides the chrome and brings it back pinned
+// Ctrl+H hides the chrome and brings it back pinned (Cmd on macOS)
 function toggleControls() {
     if (topbar.classList.contains('show') || hud.classList.contains('show')) {
         hudLock = true;
@@ -949,11 +955,10 @@ document.getElementById('bfs').onclick = () => requestFullscreen(!isFullscreen);
 document.addEventListener('keydown', e => {
     // Bail out early in draw mode — draw mode handles its own keys
     if (drawbar.classList.contains('open')) return;
-    // Escape leaves fullscreen, otherwise it toggles the controls
-    if (e.code === 'Escape') {
+    // Ctrl+H toggles the chrome, fullscreen or not (Cmd on macOS)
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyH') {
         e.preventDefault();
-        if (isFullscreen) requestFullscreen(false);
-        else toggleControls();
+        toggleControls();
         return;
     }
     switch (e.code) {
@@ -966,6 +971,7 @@ document.addEventListener('keydown', e => {
         case 'Comma':      document.getElementById('bprev').click(); break;
         case 'KeyF':
         case 'F11':        document.getElementById('bfs').click(); break;
+        case 'Escape':     window.ipc.postMessage('exit_fullscreen'); break;
         case 'KeyM':       volIcon.click(); break;
         case 'KeyL':       document.getElementById('bloop').click(); break;
     }
@@ -1349,7 +1355,8 @@ document.addEventListener('keydown', (e) => {
     else if (k === 'a') { switchTool('arrow'); e.preventDefault(); }
     else if (k === 'r') { switchTool('rect'); e.preventDefault(); }
     else if (k === 'c') { switchTool('circle'); e.preventDefault(); }
-    else if (k === 'h') { switchTool('hand'); e.preventDefault(); }
+    // A modified h is the controls chord, not the hand tool
+    else if (k === 'h' && !e.ctrlKey && !e.metaKey) { switchTool('hand'); e.preventDefault(); }
     else if (e.key === 'Escape') { closeDrawMode(); e.preventDefault(); }
     else if (k === 'delete' || k === 'backspace') {
         if ((e.ctrlKey || e.metaKey) && drawbar.classList.contains('open')) {
