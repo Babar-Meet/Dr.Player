@@ -18,6 +18,10 @@ html, body {
     -webkit-user-select: none;
     cursor: default;
 }
+/* no show-cur means the chrome is hidden, so the cursor goes with it */
+body:not(.show-cur) {
+    cursor: none;
+}
 
 video {
     position: absolute;
@@ -584,9 +588,11 @@ body.drawmode #hud {
 const vid    = document.getElementById('v');
 const topbar = document.getElementById('topbar');
 const hud    = document.getElementById('hud');
+const bhide  = document.getElementById('bhide');
 let hideT    = null;
 let uVol      = 1.0;
 let hudLock   = false;
+let hudPin    = false;
 let loopEnabled = false;
 // Try playback with audio; fall back to muted if browser blocks
 vid.muted = false;
@@ -649,33 +655,75 @@ function setCanvasCursor(cursor) {
 }
 /* ====================== END CURSOR HELPER ====================== */
 
-function showUI() {
-    if (hudLock || document.body.classList.contains('drawmode')) return;
+/* ====================== ON-SCREEN CONTROLS ====================== */
+const RESIZE_MARGIN = 8;
+// no pointer position before the first mousemove; the centre is not an edge
+let curX = window.innerWidth / 2, curY = window.innerHeight / 2;
+// The only writer of the body cursor: an inline edge cursor would beat the class rule
+function applyBodyCursor() {
+    if (!topbar.classList.contains('show')) { document.body.style.cursor = ''; return; }
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const top = curY < RESIZE_MARGIN;
+    const bottom = curY > h - RESIZE_MARGIN;
+    const left = curX < RESIZE_MARGIN;
+    const right = curX > w - RESIZE_MARGIN;
+
+    let cursor = 'default';
+    if ((top && left) || (bottom && right)) cursor = 'nwse-resize';
+    else if ((top && right) || (bottom && left)) cursor = 'nesw-resize';
+    else if (top || bottom) cursor = 'ns-resize';
+    else if (left || right) cursor = 'ew-resize';
+    document.body.style.cursor = cursor;
+}
+// The ◎ glyph is written from the resulting state, here and nowhere else
+function renderHideGlyph() {
+    bhide.textContent = topbar.classList.contains('show') ? '◎' : '◌';
+}
+function showControls() {
     topbar.classList.add('show');
     hud.classList.add('show');
     document.body.classList.add('show-cur');
-    clearTimeout(hideT);
-    hideT = setTimeout(() => {
-        topbar.classList.remove('show');
-        hud.classList.remove('show');
-        document.body.classList.remove('show-cur');
-    }, 3000);
+    renderHideGlyph();
+    applyBodyCursor();
 }
-document.addEventListener('mousemove', showUI);
-document.addEventListener('keydown',   showUI);
+function hideControls() {
+    clearTimeout(hideT);
+    topbar.classList.remove('show');
+    hud.classList.remove('show');
+    document.body.classList.remove('show-cur');
+    renderHideGlyph();
+    applyBodyCursor();
+}
+function showUI() {
+    if (hudLock || hudPin || document.body.classList.contains('drawmode')) return;
+    showControls();
+    clearTimeout(hideT);
+    hideT = setTimeout(hideControls, 3000);
+}
+// Escape hides the chrome and brings it back pinned
+function toggleControls() {
+    if (topbar.classList.contains('show') || hud.classList.contains('show')) {
+        hudLock = true;
+        hideControls();
+    } else {
+        hudLock = false;
+        hudPin = true;
+        showControls();
+    }
+}
+document.addEventListener('mousemove', () => { hudPin = false; showUI(); });
+document.addEventListener('keydown', e => {
+    if (e.code === 'Escape') return;
+    hudPin = false;
+    showUI();
+});
 showUI();
 
-document.getElementById('bhide').addEventListener('click', () => {
+bhide.addEventListener('click', () => {
     hudLock = !hudLock;
-    if (hudLock) {
-        topbar.classList.remove('show');
-        hud.classList.remove('show');
-        document.body.classList.remove('show-cur');
-        document.getElementById('bhide').textContent = '◌';
-    } else {
-        showUI();
-        document.getElementById('bhide').textContent = '◎';
-    }
+    if (hudLock) hideControls();
+    else showUI();
 });
 
 /* ====================== WINDOW DRAGGING ====================== */
@@ -689,7 +737,6 @@ document.querySelector('.title-capsule').addEventListener('mousedown', (e) => {
 });
 
 /* ====================== WINDOW RESIZING (NO MIN SIZE) ====================== */
-const RESIZE_MARGIN = 8;
 let resizing = false;
 let resizeDir = '';
 let startX = 0, startY = 0, startW = 0, startH = 0;
@@ -720,21 +767,9 @@ document.addEventListener('mousemove', (e) => {
         return;
     }
 
-    const x = e.clientX;
-    const y = e.clientY;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const top = y < RESIZE_MARGIN;
-    const bottom = y > h - RESIZE_MARGIN;
-    const left = x < RESIZE_MARGIN;
-    const right = x > w - RESIZE_MARGIN;
-
-    let cursor = 'default';
-    if ((top && left) || (bottom && right)) cursor = 'nwse-resize';
-    else if ((top && right) || (bottom && left)) cursor = 'nesw-resize';
-    else if (top || bottom) cursor = 'ns-resize';
-    else if (left || right) cursor = 'ew-resize';
-    document.body.style.cursor = cursor;
+    curX = e.clientX;
+    curY = e.clientY;
+    applyBodyCursor();
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -902,12 +937,25 @@ vid.onerror = () => {
 };
 
 /* ====================== FULLSCREEN ====================== */
-document.getElementById('bfs').onclick = () => window.ipc.postMessage('fullscreen');
+// The window owns the real state and pushes it here; the page never assumes it won
+let isFullscreen = false;
+window.setFullscreenState = state => { isFullscreen = !!state; };
+function requestFullscreen(enter) {
+    window.ipc.postMessage(enter ? 'fullscreen' : 'exit_fullscreen');
+}
+document.getElementById('bfs').onclick = () => requestFullscreen(!isFullscreen);
 
 /* ====================== KEYBOARD SHORTCUTS ====================== */
 document.addEventListener('keydown', e => {
     // Bail out early in draw mode — draw mode handles its own keys
     if (drawbar.classList.contains('open')) return;
+    // Escape leaves fullscreen, otherwise it toggles the controls
+    if (e.code === 'Escape') {
+        e.preventDefault();
+        if (isFullscreen) requestFullscreen(false);
+        else toggleControls();
+        return;
+    }
     switch (e.code) {
         case 'Space':      e.preventDefault(); vid.paused ? vid.play() : vid.pause(); break;
         case 'ArrowRight': vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 5); break;
@@ -918,7 +966,6 @@ document.addEventListener('keydown', e => {
         case 'Comma':      document.getElementById('bprev').click(); break;
         case 'KeyF':
         case 'F11':        document.getElementById('bfs').click(); break;
-        case 'Escape':     window.ipc.postMessage('exit_fullscreen'); break;
         case 'KeyM':       volIcon.click(); break;
         case 'KeyL':       document.getElementById('bloop').click(); break;
     }
@@ -1341,7 +1388,7 @@ use std::path::PathBuf;
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
-    window::{Icon, WindowBuilder, Fullscreen},
+    window::{Icon, Window, WindowBuilder, Fullscreen},
 };
 use wry::WebViewBuilder;
 use wry::WebViewBuilderExtWindows;
@@ -1361,6 +1408,12 @@ fn load_icon(bytes: &[u8]) -> Option<Icon> {
     let entry = icon_dir.entries().iter().max_by_key(|e| e.width())?;
     let img = entry.decode().ok()?;
     Icon::from_rgba(img.rgba_data().to_vec(), img.width(), img.height()).ok()
+}
+
+// The window is the only authority on fullscreen, so the page hears it from here
+fn push_fullscreen_state(window: &Window, webview: &wry::WebView) {
+    let state = window.fullscreen().is_some();
+    let _ = webview.evaluate_script(&format!("window.setFullscreenState({});", state));
 }
 
 #[tokio::main]
@@ -1426,7 +1479,7 @@ async fn main() -> wry::Result<()> {
         builder = builder.with_additional_browser_args("--autoplay-policy=no-user-gesture-required");
     }
 
-    let _webview = builder
+    let webview = builder
         .with_initialization_script(&init_script)
         .with_ipc_handler(move |msg| {
             let _ = proxy.send_event(msg.body().to_string());
@@ -1453,8 +1506,10 @@ async fn main() -> wry::Result<()> {
                     } else {
                         window.set_fullscreen(None);
                     }
+                    push_fullscreen_state(&window, &webview);
                 } else if msg == "exit_fullscreen" {
                     window.set_fullscreen(None);
+                    push_fullscreen_state(&window, &webview);
                 } else if msg == "drag_window" {
                     let _ = window.drag_window();
                 } else if msg.starts_with("resize:") {
