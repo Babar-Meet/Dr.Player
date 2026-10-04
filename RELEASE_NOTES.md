@@ -1,3 +1,43 @@
+Dr.Player v2.1.0
+
+File Associations
+- Dr.Player now appears in the Open with list for .mp4, .m4v, .mov and .webm, so a video opens
+  the way a video opens: double-click it, or pick Dr.Player from an Open with menu, and it plays.
+  Four types and no more, because those are the ones the embedded engine decodes with no bundled
+  codec. A type it cannot decode does not fail politely: the window comes up titled "Error loading
+  video" and has to be closed from Task Manager, which is why .avi, .wmv, .flv, .mpeg and .ogv
+  are absent rather than merely untested
+- The registration goes under HKCU\Software\Classes, per user and with no administrator rights,
+  which is the only scope an unelevated installer can honestly claim. One version-independent
+  ProgID, Dr.Player.Video, sits behind all four, so a later release re-registers the same name and
+  a user who has already chosen Dr.Player keeps a working handler instead of losing one to a
+  handler that appeared and disappeared
+- The installer will not make itself the default and does not claim to. Windows keeps that choice
+  in Explorer\FileExts\<ext>\UserChoice, which is obfuscated, hash-protected and blocked from
+  writes by a filter driver, so no installer may take a file type away from the program someone
+  already uses. Dr.Player sets AllowSilentDefaultTakeOver instead, which is Microsoft's way of
+  saying the same thing from the other end: stay in the list, keep out of the decision. Somebody
+  who already had another video player keeps it and simply gains Dr.Player beside it
+- Becoming the default is one choice, made once, in Windows' own UI: Settings > Default apps, or
+  right-click a video, Open with, Choose another app, then dr-player.exe. The finish page offers
+  to open that screen, unchecked, and Windows 10 opens the plain page where Windows 11 opens
+  Dr.Player's own
+- Uninstalling takes back exactly what was added: the ProgID key and the application key, whole and
+  recursively, so nothing is left pointing at an exe that is gone, plus Dr.Player's own value in
+  each of the four OpenWithProgids lists and under RegisteredApplications. The per-extension
+  default value is deliberately left in place, because Microsoft's guidance is not to remove a
+  value another program may have taken over since
+
+Installer
+- The how-to text file is gone, with the Start Menu and desktop shortcuts that pointed at it and
+  the finish-page checkbox that opened it. Nothing shipped tells you to run a command line any
+  more, because nothing shipped needs one: the app still takes exactly one argument, and the
+  association supplies it
+- The optional desktop-shortcut section went with it. It existed only to shortcut to that text
+- The finish page now says where the app installed and that it is in the Open with list, and offers
+  to open Default Apps rather than to start the app. The app exits with code 2 when started with
+  no argument, which is why there has never been a shortcut to the exe and still is not one
+
 Dr.Player v2.0.0
 
 - Nothing in this release changed but the version number: no code, no dependency and no behaviour,
