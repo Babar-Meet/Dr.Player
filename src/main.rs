@@ -131,12 +131,13 @@ video {
 }
 
 /* The row, in the markup order: play/pause, elapsed, track, remaining, then the two seek steps, the
-   two frame steps, volume, loop and fullscreen. One flat level of siblings, plain flex and no order,
-   so this markup is the visual order and the focus order alike and a CSS order cannot put one of the
-   controls out of step with the others. Play/pause leads because a pass across VLC, mpv, Plex,
-   Jellyfin and Microsoft's own guidance found it immediately left of the timeline in every one of
-   them and in none after, and the owner has asked for that position twice. Fullscreen is last
-   because that is the one position worth defending.
+   two frame steps, the rate group, volume, loop and fullscreen. One flat level of siblings, plain
+   flex and no order, so this markup is the visual order and the focus order alike and a CSS order
+   cannot put one of the controls out of step with the others. The rate group is the one wrapper on
+   the row, and its own rule below says why; it carries no order either. Play/pause leads because a
+   pass across VLC, mpv, Plex, Jellyfin and Microsoft's own guidance found it immediately left of
+   the timeline in every one of them and in none after, and the owner has asked for that position
+   twice. Fullscreen is last because that is the one position worth defending.
 
    The background is on this element and nowhere else, so the block is opaque from its top edge to
    the window's last pixel: the padding is inside the background, so the controls can stand off the
@@ -168,9 +169,9 @@ video {
 
    41 tall, which is 4 plus the tallest control plus 9 and nothing else: a button is 28 counting its
    own 1px border a side and #bplay is 26, the track's container stretches to the row's own content
-   height and floors itself at the same 28, and a readout is a 12px line box with no height and no
-   line-height of its own, so neither of the two can put a pixel under the buttons or push one above
-   them. */
+   height and floors itself at the same 28, the rate field is 22, and a readout is a 12px line box
+   with no height and no line-height of its own, so none of them can put a pixel under the buttons or
+   push one above them. */
 .controls-row {
     background: #111114;
     display: flex;
@@ -184,7 +185,7 @@ video {
    itself is 30 by 26, a step under the 34 by 28 every other button here is held to and clear of
    WCAG 2.2 SC 2.5.8's 24 by 24 floor by 6px across and 2px down. It is carried by its place at the
    head of the row and by that glyph rather than by being the largest chip on it, and stepping it
-   down under the rest evens the row's rhythm instead of announcing one button louder than the nine
+   down under the rest evens the row's rhythm instead of announcing one button louder than the eleven
    beside it. min-width is restated because .btn's 34px floor would otherwise clamp the width back
    up, and the padding goes so the glyph is centred in the smaller chip rather than measured against
    8px a side it no longer has. */
@@ -300,6 +301,110 @@ video {
 .btn:active {
     transform: scale(0.95);
     background: #232328;
+}
+
+/* ==================== PLAYBACK SPEED: MINUS, FIELD, PLUS ==================== */
+/* One group of three items with a unit label hanging off the field, and it is the one wrapper on
+   this row. It exists for exactly one reason: the unit has to sit outside the field or it would be
+   typed into, so the field needs a neighbour, and a flat row would then have to spell the group's
+   internal gap out on three of the row's own items. Plain flex and no order inside it, so the same
+   one-level-of-siblings argument that holds the row together holds here too, and flex none so the
+   field is never the thing that gives up width: the track is, which is what it is for. Positioned,
+   because the note below hangs off its top edge. */
+.rate-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+    flex: 0 0 auto;
+}
+
+/* A minus and a plus, and the reason is legibility rather than width, which is why the old comment
+   on the chevrons got it backwards. ‹ and › read as skip and the owner rejected them for it; « and »
+   are worse, because VLC and WMP spend those on speed while every other player spends them on skip
+   to the start and skip to the end; and ⏩ is fast-forward. Minus and plus flanking the number is
+   what YouTube shipped in 2024 and what the WAI-ARIA APG spinbutton pattern draws, which is what
+   this is. 16px so the mark is readable at this row's height, and free: the chip is still .btn's
+   34 by 28 because a 16px minus needs 5 of the 16 the padding and border leave and a plus needs 10.
+   tabindex -1 takes both out of the Tab sequence, where the field's own arrow keys already cover
+   what these do, and leaves them reachable by pointer. */
+#bslower, #bfaster {
+    font-size: 16px;
+}
+
+/* The field is the readout and the control in one, so it is always on and always holds the rate,
+   1.00 included: a speed control that shows nothing until you have already changed the speed is a
+   control you have to guess the state of. A plain text input rather than type=number, which
+   silently discards a value it considers invalid, which is exactly the value somebody is here to
+   type, and which grows spinners that have no place in a 41px row.
+
+   Fixed at six characters rather than sized to whatever it holds, which is both the jitter floor
+   and the jitter ceiling: 1.00 is four, 16.00 is five and 0.0625 is six, so six is the widest value
+   the control can be given and the width is the same whatever the rate is, so nothing to the right
+   of it moves and the row cannot widen on a long value. Six ch is six digits of this element's own
+   monospace whatever the machine has, and a value that will not fit scrolls inside the field rather
+   than out of it. 22 tall so it cannot make the row taller than the 28 of the buttons beside it.
+
+   user-select text is here because html, body carry user-select: none, which would make the field's
+   own contents unselectable and so impossible to edit by hand. SC 1.4.11 has to reach 3:1 for the
+   focus indicator and #e00 on this field's own #1c1c20 is 4.1:1. */
+.rate-input {
+    width: 6ch;
+    min-width: 6ch;
+    max-width: 6ch;
+    height: 22px;
+    padding: 0 3px;
+    border: 1px solid #5a5a63;
+    border-radius: 5px;
+    background: #1c1c20;
+    color: #e8e8ea;
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 12px;
+    text-align: center;
+    cursor: text;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+}
+.rate-input:focus {
+    border-color: #e00;
+}
+
+/* The unit, a sibling of the field and not inside it, so the number goes in alone and 0.0625 can be
+   typed as typed. The same 12px monospace and the same colour as the two time readouts, so it reads
+   as part of a number rather than as a fourth control. A label and never a target: pointer-events
+   none, so a press beside the field reaches the row's own backing rather than a box that is not
+   there, and none of the eight-pixel edge bands reach into it either. */
+.rate-x {
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 12px;
+    color: #e8e8ea;
+    pointer-events: none;
+}
+
+/* Why a rate was refused, above the row rather than in it: the 41px of this row holds the
+   controls and nothing else, and a message inside the group would widen the group the width
+   arithmetic below is built on. Absolute, so it costs that arithmetic nothing at all, and pinned 32
+   above the group's own bottom edge, which is the 9 of margin plus the 4 of air plus the 28 of the
+   controls, so its box starts on the row's top edge and stands up over the picture the way a
+   tooltip does. Empty, which is nearly all the time, it is an empty span with no box and so draws
+   nothing, and it stays in the DOM and in the accessibility tree empty, which is what lets
+   role=status announce the text when it arrives. Same flat opaque backing as the row, no glass, and
+   pointer-events none so a press on it reaches the picture rather than a box that is not a
+   control. */
+.rate-note {
+    position: absolute;
+    bottom: 32px;
+    left: 0;
+    padding: 4px 8px;
+    background: #111114;
+    border: 1px solid #2e2e34;
+    border-radius: 7px;
+    font-size: 12px;
+    color: #e8e8ea;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1;
 }
 
 .vol-container {
@@ -532,23 +637,33 @@ body.drawmode #hud {
 
 /* ==================== COMPACT LAYOUT FOR SMALL WINDOWS ==================== */
 /* The window has no minimum size any more, so the block has to survive being squeezed on both axes.
-   Width first, measured off the rules above in the row's own order and at each control's own
-   minimum: play at its 30, the two readouts at their 62px floors, -5s at 34.5 and +5s at
-   37.5, -1F at 35.1 and +1F at 38.1 (each glyph at 12px plus 8px of padding and a 1px border a
-   side), volume at 83 (18px of emoji, a 5px gap and the 60px slider), loop and fullscreen at their
-   34px floors, where a 14px glyph needs only 32: about 450px of controls, then ten 10px gaps and
-   18px of padding, about 568px with a track of no width at all. A track worth pressing is about
-   120px, so 688 is where the whole row stops fitting and 700 is that with the few pixels of slack
-   another machine's font metrics are worth. Under 700 the buttons on the right go whole rather than
-   half: play/pause has left them, so there is no part of them left worth keeping, and what is lost
-   costs nothing on the keyboard. The two seek steps and the two frame steps are the arrow keys and
-   comma and period, volume is the up and down arrows and M, loop is L, fullscreen is F or F11, and
-   each of those runs off the keyboard whatever its button looks like, because a click fired by id
-   is dispatched by the DOM and does not care whether the button is on screen. What survives is
-   play/pause, both readouts and the whole track, so a mouse-only viewer is still able to pause and
-   to scrub. */
-@media (max-width: 700px) {
-    #bseek-back, #bseek-fwd, #bprev, #bnext, .vol-container, #bloop, #bfs { display: none; }
+   Width first, every item at its own minimum in the row's order: play at 30, the two time readouts
+   at their 62px floors, -5s at 34.5 and +5s at 37.5, -1F at 35.1 and +1F at 38.1 (each glyph at
+   12px plus 8px of padding and a 1px border a side), the rate group at 138, volume at 83 (18px of
+   emoji, a 5px gap and the 60px slider), loop and fullscreen at their 34px floors where a 14px
+   glyph needs only 32, and the track at nothing, which is the one item here with no floor of its
+   own. The group is 138: 34 and 34 for the two buttons, three 4px gaps, 51 for the field, which is
+   six monospace characters of 7.2 plus 3px of padding and a 1px border a side, and 7 for the unit.
+   Six characters is the widest value the field can be given, 0.0625 at one end and 16.00 at the
+   other, and the field is fixed at six, so the group is the same width at 1.00 as it is at 16.00
+   and no value a keyboard can produce widens the row. Twelve items come to 588, eleven 10px gaps to
+   110, the padding to 18, so 716 is the row with a track of no width at all. A track worth pressing
+   is about 120px, so 836 is where the whole row stops fitting and 849 is that with the few pixels of
+   slack another machine's font metrics are worth.
+
+   The group is what moved the switch, and the arithmetic is 849 - 835 = 14 either way: the old rate
+   group cost 104 of content and three gaps, 134, where this one costs 138 of content and two gaps,
+   158. Twenty-four more of cost, less the 10 a gap gives back by collapsing three row items into
+   one wrapper. Under 849 the buttons on the right go whole rather than half: play/pause has left
+   them, so there is no part of them left worth keeping, and what is lost costs nothing on the
+   keyboard. The two seek steps and the two frame steps are the arrow keys and comma and period, the
+   two rate steps are the bare [ and ], volume is the up and down arrows and M, loop is L, fullscreen
+   is F or F11, and each of those runs off the keyboard whatever its button looks like, because a
+   click fired by id is dispatched by the DOM and does not care whether the button is on screen.
+   What survives is play/pause, both readouts and the whole track, so a mouse-only viewer is still
+   able to pause and to scrub. */
+@media (max-width: 849px) {
+    #bseek-back, #bseek-fwd, #bprev, #bnext, #rate-group, .vol-container, #bloop, #bfs { display: none; }
 }
 /* The top bar runs out of room on its own arithmetic, and on nothing to do with the row: the caption
    is 60% of the window and the five window buttons with their 8px gaps are 172, so 0.6 of a window
@@ -619,8 +734,14 @@ body.drawmode #hud {
 </div>
 
 <!-- Bottom chrome: one row, in this order. Play/pause first and immediately left of the timeline,
-     the two readouts bracketing it, then the two seek steps, the two frame steps, volume, loop, and
-     fullscreen last. Plain flex with no order, so this markup is the visual order and the focus order. -->
+     the two readouts bracketing it, then the two seek steps, the two frame steps, the rate group,
+     volume, loop, and fullscreen last. Plain flex with no order, so this markup is the visual order
+     and the focus order. The rate group sits at the left end of the group to the right of the track
+     and before the volume, because everything to its right keeps the x it had and the timeline is
+     the only thing that pays for it. The group is three items, a minus, the editable number and a
+     plus, with the x outside the field, and the field is the one control on this bar that is always
+     on and always holds the rate. Its aria-valuemin and aria-valuemax are the engine's own bounds,
+     quoted in the script below; Home and End are left alone there on purpose. -->
 <div id="hud">
     <div class="controls-row">
         <button class="btn" id="bplay" title="Play/Pause">▶</button>
@@ -639,6 +760,16 @@ body.drawmode #hud {
         <button class="btn" id="bseek-fwd">+5s</button>
         <button class="btn" id="bprev">-1F</button>
         <button class="btn" id="bnext">+1F</button>
+
+        <div class="rate-group" id="rate-group">
+            <button class="btn" id="bslower" tabindex="-1" title="Slower ([)"><span aria-hidden="true">-</span></button>
+            <input class="rate-input" id="rate-input" type="text" role="spinbutton" aria-label="Playback speed"
+                   aria-valuemin="0.0625" aria-valuemax="16" aria-valuenow="1" aria-valuetext="1.00 times"
+                   value="1.00" size="6" inputmode="decimal" spellcheck="false" autocomplete="off">
+            <span class="rate-x" aria-hidden="true">x</span>
+            <span class="rate-note" id="rate-note" role="status" aria-live="polite"></span>
+            <button class="btn" id="bfaster" tabindex="-1" title="Faster (])"><span aria-hidden="true">+</span></button>
+        </div>
 
         <div class="vol-container">
             <span class="vol-icon" id="vol-icon">🔊</span>
@@ -853,7 +984,15 @@ function showUI() {
     if (hudLock || hudPin || document.body.classList.contains('drawmode')) return;
     showControls();
     clearTimeout(hideT);
-    hideT = setTimeout(hideControls, 3000);
+    // Re-checked when the timer fires, not only when it was set, because the rate field can take
+    // focus somewhere inside those three seconds. The chrome does not go to opacity 0 with the
+    // keyboard sitting in it: an invisible control cannot be read and cannot be escaped from by eye,
+    // and it takes the focus ring with it. Inside the chrome rather than in the field alone, so a
+    // control that took focus from a click is in the same position.
+    hideT = setTimeout(() => {
+        if (hud.contains(document.activeElement)) { showUI(); return; }
+        hideControls();
+    }, 3000);
 }
 // H hides the chrome and brings it back pinned
 function toggleControls() {
@@ -958,6 +1097,14 @@ document.addEventListener('keydown', e => {
     if (e.code === 'Escape') return;
     hudPin = false;
     showUI();
+});
+// pointer-events: none on a hidden #hud keeps a press from reaching the chrome, but it does not keep
+// Tab out of it: without this a Tab with the chrome down would put the keyboard into a control at
+// opacity 0, and the rate field is the first one in this row that can be typed into at all. Focus
+// landing in a hidden chrome is let go again, and no press can produce that case in the first place,
+// because pointer-events has already turned the press away.
+document.addEventListener('focusin', (e) => {
+    if (hud.contains(e.target) && !hud.classList.contains('show')) e.target.blur();
 });
 showUI();
 
@@ -1173,6 +1320,247 @@ document.getElementById('bseek-fwd').onclick = () => {
     vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 5);
 };
 
+/* ====================== PLAYBACK RATE ====================== */
+/* The rate goes through the media element's own playbackRate and through nothing else: no second
+   clock, no timer, no transform, nothing that touches how the frame is painted. Nothing about the
+   window's shape follows from it either: fill mode reads videoWidth and videoHeight, which are the
+   frame's own size and which no rate has any say in, and a rate change posts no resize.
+
+   The two bounds below are the engine's and not this app's. Chromium declares kMinPlaybackRate
+   0.0625 and kMaxPlaybackRate 16.0 in html_media_element.h, and IsValidPlaybackRate admits
+   anything between them plus exactly zero. The Windows build is a WebView2, which is Chromium, so
+   this is the range the element really has. The HTML spec itself sets no bound at all on
+   playbackRate, which is the whole reason these are a copy of the engine rather than a decision
+   about what an owner should be allowed to ask for, and the reason nothing here narrows them: 25 is
+   over Blink's ceiling and 0.001 is under its floor, so both throw there and both quietly mislead
+   on WKWebView, and the widest honest range is the one below. For what other players do, none of
+   which agrees with any other: YouTube 0.25 to 2.00, Plex 0.5 to 2.00, JW Player 0.5 to 2.00, VLC's
+   Android UI 0.25 to 4.00, VLC's own engine 0.03125 to 31.25 behind a Faster and Slower pair, mpv
+   0.01 to 100, and Films & TV ships no rate control at all.
+
+   The step stays a quarter and is coarse on purpose. Chromium issue 40190553 recorded audio and
+   video drifting apart when playbackRate is written repeatedly at roughly 200ms, which is what
+   holding a speed key down produces, so the grid is not finer than this. The grid's own ends are not
+   the bounds above: its lowest point is 0.25 and its highest is 16.00, so one step off either end asks
+   for a rate the engine refuses, and stepRate clamps those two to RATE_MIN and RATE_MAX rather than
+   refusing them. That is what puts the real floor a single press away instead of out of reach, and it
+   is what leaves both bounds as the place a press stops. Between two grid points the field is still
+   the only way in, and that is what the field is for. A typed value outside the two bounds is
+   clamped to the edge it overshot rather than refused, and zero is what makes that the right rule:
+   the spec means 0 by leaving the position still with paused false and no pause event, so a 0.00x
+   next to a play triangle would be a control that looks like it took effect and did not. Clamping a
+   typed 0 up to the floor removes that trap with no case of its own, because the rule stays one rule:
+   anything finite clamps, and only text that is not a number is refused. */
+const RATE_MIN = 0.0625;
+const RATE_MAX = 16;
+// The grid a button, a bracket key or an arrow key walks. Neither of its ends is a bound above, which
+// is the whole reason the step below has to clamp.
+const RATE_STEP = 0.25;
+// Page keys move four steps, which is 1.00: a whole rate rather than a nudge, and still coarse.
+const RATE_PAGE = 4;
+const bslower   = document.getElementById('bslower');
+const bfaster   = document.getElementById('bfaster');
+const rateInput = document.getElementById('rate-input');
+const rateNote  = document.getElementById('rate-note');
+// The rate in effect, and the only thing the two buttons and the two bracket keys step from. It is
+// not persisted: a newly opened file starts at 1.00, like any other player, and loadedmetadata
+// below is what resets it.
+let rate = 1;
+
+// Two decimals for everything on the grid and above it, four only for the values between the grid
+// points. The floor is the one value where two decimals is wrong rather than short: 0.0625 through
+// toFixed(2) is 0.06, which is neither the rate that was asked for nor even in range.
+function fmtRate(v) {
+    const four = v.toFixed(4);
+    return four.endsWith('00') ? v.toFixed(2) : four.replace(/0$/, '');
+}
+
+// The field is the readout, so this is what keeps it true: the number on screen is the rate, and
+// aria-valuetext carries the unit, because a bare number is announced with none and "1.00" alone
+// tells a screen reader nothing about what it is a rate of.
+function renderRate() {
+    const shown = fmtRate(rate);
+    rateInput.value = shown;
+    rateInput.setAttribute('aria-valuenow', String(rate));
+    rateInput.setAttribute('aria-valuetext', shown + ' times');
+    rateNote.textContent = '';
+}
+
+// The only writer of playbackRate in this file, and the range is checked before the write so a value
+// outside it never reaches the element at all. Blink throws NotSupportedError and leaves the stored
+// value alone, so there is no read-back here and no restore branch: on a platform this app ships to
+// a value read straight back cannot disagree with the value written, and a comparison that can never
+// fire is not a safety net. WKWebView, which is the macOS build, does the opposite and is the reason
+// the check is load-bearing rather than tidy: it enforces nothing, never throws, and reports back
+// whatever it was asked for, so an unchecked write there is a rate that looks live and is not. The
+// try/catch is left as the belt and braces for an engine that does neither.
+function applyRate(next) {
+    if (!Number.isFinite(next) || next < RATE_MIN || next > RATE_MAX) return false;
+    try {
+        vid.playbackRate = next;
+    } catch (err) {
+        console.error('RATE_THREW', next, err);
+        // The write did not happen, so the field goes back to the rate really in effect before the
+        // reason goes up, and the reason is written after that restore so it outlives it. This is
+        // the only refusal that can leave the field holding the value it was given: the typed path
+        // refuses in commitTypedRate, which puts the field back itself.
+        renderRate();
+        rateNote.textContent = 'This engine refused the rate';
+        return false;
+    }
+    rate = next;
+    renderRate();
+    return true;
+}
+
+// Typed entry takes any value in range rather than snapping it to the quarter, because a value
+// between two grid points, 3.33 or 2.5, is one no press can reach and typing is where it comes from.
+// The floor is a press away now rather than a typed value only, and it is still taken as typed here
+// rather than as the nearest grid point, because 0.0625 is a legal rate in its own right.
+//
+// Anything finite outside the range is clamped to the edge it overshot and applied, never refused:
+// 17 becomes 16.00, and 0.01, 0 and -2 all become 0.0625. That is the same clamp stepRate below
+// already applies to the two steps off its own grid, so there is one rule for a value out of range
+// rather than a clamp path beside a refusal path, and it puts a typed 0 on the floor instead of on
+// the one rate that stands the picture still without pausing it. applyRate renders from the clamped
+// rate, so the field comes back holding the number that is really playing and the two cannot disagree
+// at any moment, and the note naming the edge is written after that render because renderRate clears
+// it, which is also what clears it on the next change that is not clamped.
+//
+// The two refusals left are the two things that are not a number at all. An empty field has to be
+// caught before the parse and not after it, because Number('') is 0 and Number(' ') is 0. Those two
+// write nothing at all and put the field back to the rate in effect here in this same call rather
+// than on blur, with the reason written after the restore.
+function commitTypedRate() {
+    const raw = rateInput.value.trim();
+    const v = raw === '' ? NaN : Number(raw);
+    if (raw === '' || !Number.isFinite(v)) {
+        renderRate();
+        rateNote.textContent = raw === '' ? 'Enter a number' : 'Not a number';
+        return false;
+    }
+    const clamped = Math.min(RATE_MAX, Math.max(RATE_MIN, v));
+    // applyRate refuses by putting the field back and saying so, so its own note is left standing
+    // here and a clamp is only announced once the write has actually landed.
+    if (!applyRate(clamped)) return false;
+    if (clamped !== v) {
+        rateNote.textContent = clamped === RATE_MAX
+            ? 'Clamped to the fastest rate, ' + fmtRate(RATE_MAX)
+            : 'Clamped to the slowest rate, ' + fmtRate(RATE_MIN);
+    }
+    return true;
+}
+
+// One step off the grid rather than one added to the last value. The index is the integer the rate is
+// really stored as, so every rate written here is a whole number of steps from a known start and
+// nothing accumulates behind however many keys are held down, and a base typed off the grid snaps to
+// its nearest point rather than dragging the rest of the grid with it. The candidate is then clamped
+// to the engine's own bounds and not refused: the grid's lowest point is 0.25, so a step below it
+// asks for 0.00, which is the one rate applyRate and Blink both refuse, and the grid's highest is
+// 16.00, so a step above it asks for 16.25, which Blink refuses too. Clamping is what makes the floor
+// reachable at all and what leaves both bounds as the place a press stops. From 1.00 that is 0.75,
+// 0.50, 0.25, 0.0625 and no lower, and 1.25 upward on the quarter to 16.00 and no higher; pressed
+// again at either end this rewrites the bound it is already on, so nothing wraps, jumps or reaches 0
+// and the field and the note stay true. The base comes in from the field so an arrow key steps from
+// what is in the field; from anything but an in-range number that base is the rate in effect.
+function stepRate(dir, from) {
+    const base = Number.isFinite(from) ? from : rate;
+    const candidate = (Math.round(base / RATE_STEP) + dir) * RATE_STEP;
+    return applyRate(Math.min(RATE_MAX, Math.max(RATE_MIN, candidate)));
+}
+
+function typedRate() {
+    const raw = rateInput.value.trim();
+    const v = raw === '' ? NaN : Number(raw);
+    return Number.isFinite(v) && v >= RATE_MIN && v <= RATE_MAX ? v : rate;
+}
+
+// A new source starts at 1.00 and the field says so. The rate belongs to the file rather than to
+// the session, so opening another video never inherits the last one's speed, which is what the
+// owner asked for and what every other player does. loadedmetadata is the one event a load raises
+// here and a seek raises none of them, so a scrub cannot reset the rate, and it fires on the first
+// load as well as on every later one. Written even though the element may already have taken its
+// playbackRate back to 1.00 on a new src, because WKWebView may not have and the field must not
+// depend on which of the two it got.
+vid.addEventListener('loadedmetadata', () => {
+    rate = 1;
+    applyRate(1);
+});
+
+// The spinbutton contract, WAI-ARIA APG, which is what role="spinbutton" above promises. Every key
+// here stops propagating first and that is the load-bearing half of it: the player handler at the
+// foot of this file switches on e.code with no focus guard, so without this a keystroke aimed at the
+// field would fire a shortcut instead of reaching it. Left to it are c for fill, h for the chrome,
+// l for loop, m for mute, f and F11 for fullscreen, space for play, the brackets for the rate, comma
+// and period for the frame steps and the arrow keys for seeking and volume. The typing of 0.0625 is
+// the sharpest case, because the period in it is a frame step that pauses the picture. The arrows are
+// default-prevented here, which the player handler does not do for them, so the caret stays put as
+// well as the volume. The same stop the text dialog's input makes for the same reason.
+rateInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    switch (e.code) {
+        case 'ArrowUp':
+        case 'ArrowRight':
+            e.preventDefault();
+            stepRate(1, typedRate());
+            break;
+        case 'ArrowDown':
+        case 'ArrowLeft':
+            e.preventDefault();
+            stepRate(-1, typedRate());
+            break;
+        case 'PageUp':
+            e.preventDefault();
+            stepRate(RATE_PAGE, typedRate());
+            break;
+        case 'PageDown':
+            e.preventDefault();
+            stepRate(-RATE_PAGE, typedRate());
+            break;
+        // Home and End are deliberately absent. In a text field they move the caret and a screen
+        // reader expects them to, and the APG guidance that mapped them to the minimum and the
+        // maximum is being withdrawn for that reason, so they are left to behave natively.
+        case 'Enter':
+            e.preventDefault();
+            commitTypedRate();
+            rateInput.blur();
+            break;
+        case 'Escape':
+            e.preventDefault();
+            renderRate();
+            rateInput.blur();
+            break;
+    }
+});
+
+// Focus holds the chrome up and restarts its clock, the first half of which is the guard in showUI
+// and the second is here: the timer was set three seconds ago and has to be set again from now, or
+// it fires mid-edit. select on the way in because the whole value is being replaced, so typing a
+// rate should replace the rate rather than land inside it.
+rateInput.addEventListener('focus', () => {
+    showUI();
+    rateInput.select();
+});
+
+// Blur commits what can be committed, and it is the only path that does: an edit the user walked away
+// from rather than pressing Enter reaches the field here, and commitTypedRate clamps it or refuses
+// it and puts the field back itself, so the field is still never left holding a number that is not
+// playing, and the clamp here is the same one Enter gets rather than a second path of its own. The
+// note goes with the reason, because focus has left and a message about a keystroke nobody is typing
+// any more is noise. Skipped entirely when the field already holds the rate in effect, which is every blur
+// that is not an edit: Enter and Escape leave it holding the rate whether they committed or refused,
+// and re-writing the rate the element already has would be a second write of the same value for
+// nothing.
+rateInput.addEventListener('blur', () => {
+    if (rateInput.value !== fmtRate(rate)) commitTypedRate();
+    rateNote.textContent = '';
+    showUI();
+});
+
+bslower.onclick = () => { stepRate(-1); };
+bfaster.onclick = () => { stepRate(1); };
+renderRate();
+
 /* ====================== VOLUME ====================== */
 const volSlider = document.getElementById('vol-slider');
 const volFill   = document.getElementById('vol-fill');
@@ -1265,6 +1653,22 @@ document.addEventListener('keydown', e => {
     if (e.code === 'KeyC') {
         e.preventDefault();
         toggleFill();
+        return;
+    }
+    // [ and ] are the rate, one step down and one step up. Bare and by physical key for the same
+    // reason as H and C: this WebView2 never delivers modified keys to the page, so a chord is dead
+    // and a test on e.key is worse than dead, because a shifted character arrives as a different
+    // e.key altogether. Nothing else in this file claims BracketLeft or BracketRight, so the two
+    // keys have exactly one owner each, and the early return above has already handed them to
+    // nothing while the draw bar is open.
+    if (e.code === 'BracketLeft') {
+        e.preventDefault();
+        stepRate(-1);
+        return;
+    }
+    if (e.code === 'BracketRight') {
+        e.preventDefault();
+        stepRate(1);
         return;
     }
     switch (e.code) {
