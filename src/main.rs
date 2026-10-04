@@ -25,6 +25,9 @@ video {
     width: 100%; height: 100%;
     object-fit: contain;
 }
+/* contain above is the only fit this file declares, in every mode. Fill mode never touches
+   it: it gives the window the video's own shape instead, so there is no empty space left
+   for contain to letterbox and nothing is cropped or stretched to get there. */
 
 /* ==================== TOP BAR ==================== */
 #topbar {
@@ -460,6 +463,7 @@ body.drawmode #hud {
     <div class="title-capsule" id="title">Dr.Player</div>
     <div class="winctrl">
         <button class="wbtn" id="bhide" title="Toggle on-screen controls">◎</button>
+        <button class="wbtn" id="bfill" title="Fill: shape the window to the video (C)">▢</button>
         <button class="wbtn" id="bdraw" title="Draw on video">✎</button>
         <button class="wbtn" id="bmin" title="Minimize">—</button>
         <button class="wbtn close" id="bcls" title="Close">✕</button>
@@ -585,10 +589,12 @@ const vid    = document.getElementById('v');
 const topbar = document.getElementById('topbar');
 const hud    = document.getElementById('hud');
 const bhide  = document.getElementById('bhide');
+const bfill  = document.getElementById('bfill');
 let hideT    = null;
 let uVol      = 1.0;
 let hudLock   = false;
 let hudPin    = false;
+let fillMode  = false;
 let loopEnabled = false;
 // Try playback with audio; fall back to muted if browser blocks
 vid.muted = false;
@@ -712,6 +718,59 @@ function toggleControls() {
         showControls();
     }
 }
+// Fill mode reshapes the WINDOW, never the picture. contain already draws the whole frame at
+// its true proportions, so giving the window that same ratio leaves nothing for contain to
+// letterbox: the picture covers the window edge to edge with no bars, nothing cropped and
+// nothing stretched. Off by default: contain and a black surround is the look the app has
+// always had.
+let videoAspect = null; // videoWidth / videoHeight, null until metadata yields a usable size
+// The window clamps a posted size to this box, so the JS side keeps out of it deliberately
+const MIN_WINDOW_DIM = 200;
+const MAX_WINDOW_W = 7680;
+const MAX_WINDOW_H = 4320;
+
+function renderFillGlyph() {
+    bfill.textContent = fillMode ? '▣' : '▢';
+}
+function readVideoAspect() {
+    const w = vid.videoWidth;
+    const h = vid.videoHeight;
+    videoAspect = (w > 0 && h > 0) ? w / h : null;
+}
+function clampDim(v, max) {
+    return Math.max(1, Math.min(max, Math.round(v)));
+}
+// Both axes are scaled by the same factor, never clamped one at a time, so a shape outside the
+// window's own limits keeps the ratio instead of re-introducing the bars the clamp would cause.
+function fitToWindowLimits(w, h) {
+    const grow = MIN_WINDOW_DIM / Math.min(w, h);
+    const shrink = Math.min(MAX_WINDOW_W / w, MAX_WINDOW_H / h);
+    const k = grow > 1 ? grow : (shrink < 1 ? shrink : 1);
+    return { w: clampDim(w * k, MAX_WINDOW_W), h: clampDim(h * k, MAX_WINDOW_H) };
+}
+// Height is the axis kept: a wide frame then widens the window, so the owner sees more of the
+// picture rather than less. Does nothing when the ratio is not known yet.
+function snapWindowToVideo() {
+    if (!fillMode || !videoAspect) return;
+    const h = window.innerHeight;
+    const shape = fitToWindowLimits(h * videoAspect, h);
+    window.ipc.postMessage(`resize:${shape.w}:${shape.h}`);
+}
+function toggleFill() {
+    fillMode = !fillMode;
+    document.body.classList.toggle('fillmode', fillMode);
+    renderFillGlyph();
+    // Only on the way in. Turning it off leaves the window exactly where the user left it.
+    if (fillMode) snapWindowToVideo();
+}
+// Metadata is the first moment the frame's own size exists, and it can land after the user has
+// already turned fill mode on, so the ratio is read here and a snap deferred by toggleFill is
+// done now rather than skipped.
+vid.addEventListener('loadedmetadata', () => {
+    readVideoAspect();
+    snapWindowToVideo();
+});
+readVideoAspect(); // nothing to read yet on first run; harmless if there ever is
 document.addEventListener('mousemove', () => { hudPin = false; showUI(); });
 document.addEventListener('keydown', e => {
     if (e.code === 'Escape') return;
@@ -725,6 +784,7 @@ bhide.addEventListener('click', () => {
     if (hudLock) hideControls();
     else showUI();
 });
+bfill.addEventListener('click', toggleFill);
 
 /* ====================== WINDOW DRAGGING ====================== */
 document.getElementById('drag-handle').addEventListener('mousedown', (e) => {
@@ -755,6 +815,34 @@ document.addEventListener('mousemove', (e) => {
         if (resizeDir.includes('n')) newH = startH - dy;
         newW = Math.max(1, newW);
         newH = Math.max(1, newH);
+        // Fill mode corrects the axis the drag is not driving, from the one it is, so the
+        // window ends every gesture on the video's ratio. Off, or with no ratio yet, this is
+        // the untouched free resize.
+        if (fillMode && videoAspect) {
+            const dragW = newW;
+            const dragH = newH;
+            const horiz = resizeDir.includes('e') || resizeDir.includes('w');
+            const vert = resizeDir.includes('n') || resizeDir.includes('s');
+            let w = dragW;
+            let h = dragH;
+            if (horiz && !vert) {
+                h = dragW / videoAspect;
+            } else if (vert && !horiz) {
+                w = dragH * videoAspect;
+            } else if (horiz && vert) {
+                // A corner is in play, so both axes are moving. The axis that moved less is the
+                // one recomputed, so the axis the cursor actually led is the one kept, and the
+                // gesture is followed rather than argued with. A dead heat goes to the width,
+                // which for a wide frame is the axis that tracks the cursor most closely.
+                if (Math.abs(dragW - startW) >= Math.abs(dragH - startH)) h = dragW / videoAspect;
+                else w = dragH * videoAspect;
+            }
+            const shape = fitToWindowLimits(w, h);
+            // Already on the ratio: post nothing, so a held cursor cannot cause jitter
+            if (Math.abs(shape.w - dragW) <= 2 && Math.abs(shape.h - dragH) <= 2) return;
+            newW = shape.w;
+            newH = shape.h;
+        }
         resizeW = newW;
         resizeH = newH;
         if (!resizePending) {
@@ -969,6 +1057,15 @@ document.addEventListener('keydown', e => {
     if (e.code === 'KeyH') {
         e.preventDefault();
         toggleControls();
+        return;
+    }
+    // C turns on fill mode, which reshapes the window to the video rather than changing how
+    // the picture is drawn. Bare for the same reason as H: this WebView2 never delivers
+    // modified keys to the page. In draw mode the early return above has already handed C to
+    // the circle tool, as with L and H.
+    if (e.code === 'KeyC') {
+        e.preventDefault();
+        toggleFill();
         return;
     }
     switch (e.code) {
