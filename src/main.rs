@@ -55,17 +55,16 @@ video {
     z-index: 1;
 }
 
+/* Opaque, for the same reason as the bottom chrome: a 12% white wash has nothing behind it to be
+   read against, so the caption would end up sitting on whatever frame is playing. */
 .title-capsule {
-    background: rgba(255,255,255,0.12);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255,255,255,0.15);
+    background: #16161a;
+    border: 1px solid #2e2e34;
     border-radius: 10px;
     padding: 6px 16px;
     font-size: 14px;
     font-weight: 500;
-    color: rgba(255,255,255,0.95);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    color: #e8e8ea;
     max-width: 60%;
     overflow: hidden;
     white-space: nowrap;
@@ -81,24 +80,24 @@ video {
     z-index: 2;
     pointer-events: auto;
 }
+/* Same flat chip as the bottom row, for the same reason, and still 28 by 28: this is the window's
+   own row and its target size was never part of the bottom chrome rework. */
 .wbtn {
     width: 28px; height: 28px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.1);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.12);
-    color: rgba(255,255,255,0.8);
+    background: #303036;
+    border: 1px solid #5a5a63;
+    color: #e8e8ea;
     font-size: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     transition: all 0.15s;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
 .wbtn:hover {
-    background: rgba(255,255,255,0.22);
+    background: #3a3a41;
+    border-color: #6b6b74;
     color: #fff;
 }
 .wbtn.close:hover {
@@ -107,7 +106,13 @@ video {
     color: #fff;
 }
 
-/* ==================== BOTTOM HUD – SINGLE ROW ==================== */
+/* ==================== BOTTOM CHROME: ONE ROW ==================== */
+/* #hud is the one element that carries the show state and the whole row is inside it, so
+   showControls and hideControls keep writing one class on one element and the chrome can never come
+   back with half of it. It is inset on all four sides and pins its child to the bottom, so the row,
+   backing and padding both, sits on the window's last pixel at any height, and it paints nothing
+   itself: the backing belongs to the row, because the row is the one element that covers the whole
+   block, and #hud spanning the window cannot be the thing that is opaque. */
 #hud {
     position: absolute;
     inset: 0;
@@ -116,8 +121,8 @@ video {
     transition: opacity 0.25s;
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     justify-content: flex-end;
-    padding: 0 24px 18px;
     z-index: 10;
 }
 #hud.show {
@@ -125,49 +130,114 @@ video {
     pointer-events: auto;
 }
 
-.bar {
-    background: rgba(255,255,255,0.08);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 12px;
-    padding: 8px 14px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-}
+/* The row, in the markup order: play/pause, elapsed, track, remaining, then the two seek steps, the
+   two frame steps, volume, loop and fullscreen. One flat level of siblings, plain flex and no order,
+   so this markup is the visual order and the focus order alike and a CSS order cannot put one of the
+   controls out of step with the others. Play/pause leads because a pass across VLC, mpv, Plex,
+   Jellyfin and Microsoft's own guidance found it immediately left of the timeline in every one of
+   them and in none after, and the owner has asked for that position twice. Fullscreen is last
+   because that is the one position worth defending.
 
-/* Left to right, in the markup: play/pause, the two seek steps, the two frame steps, the elapsed
-   time, the seek bar, the remaining time, volume, loop, fullscreen. Play/pause leads because every
-   desktop player put side by side puts it left of the timeline and none puts it after, and the
-   steps sit next to it. The row is plain flex and uses no order, so this markup is the visual order
-   and the focus order as well; a CSS order would put one of the three out of step with the others. */
+   The background is on this element and nowhere else, so the block is opaque from its top edge to
+   the window's last pixel: the padding is inside the background, so the controls can stand off the
+   edges and the backing behind them still runs to the bottom of the window, with nothing left below
+   it for the frame to show through. Opaque rather than tinted, because at alpha 1 the frame playing
+   underneath adds nothing to what is painted here: the contrast of every glyph and every readout
+   here is then fixed by the two declared colours alone and survives a white frame as well as a
+   black one. Ten steps off pure black is dark enough to stay out of the picture's way and light
+   enough to read as a surface rather than as a hole cut in the frame.
+
+   Nine a side and nine a foot, and the number is the window's: RESIZE_MARGIN is 8 and the edge
+   handler claims any press within it of a border, so a control has to end at least 8px short of
+   every edge or a press on it resizes the window instead of pressing it. Nine is the smallest whole
+   number that clears eight, one pixel of slack, and that is what keeps a fractional pointer
+   coordinate or a half-pixel border out of the resize zone. It is padding rather than a handler on
+   the row, and the difference is the whole point: a mousedown on the row has to swallow every press
+   on it, the row spans the full width, so it takes the bottom edge and both bottom corners with it
+   and the window can no longer be resized from below while the chrome is up. Nine a foot leaves that
+   band bare instead, so a press on the backing below the controls reaches the edge handler on its
+   own and only a press within 8px of the bottom starts a resize. The one pixel of slack is dead to a
+   press, which is the price of the clearance and is not worth reclaiming.
+   #seekbar-container and #vol-slider keep the stopPropagation they have always had, which is why
+   scrubbing and volume still work with the bar sitting 9px off the bottom of the window.
+
+   Four a head is not resize margin but air, and it is the inside of the owner's 3 to 5: a control
+   flush with the top of its own block reads as cropped by it, which is the same complaint as one
+   flush with the bottom, and it is the padding that fixes both. The 10px gap between the chips
+   stays: they were never touching each other, they were pressed against the edges of the bar.
+
+   41 tall, which is 4 plus the tallest control plus 9 and nothing else: a button is 28 counting its
+   own 1px border a side and #bplay is 26, the track's container stretches to the row's own content
+   height and floors itself at the same 28, and a readout is a 12px line box with no height and no
+   line-height of its own, so neither of the two can put a pixel under the buttons or push one above
+   them. */
 .controls-row {
+    background: #111114;
     display: flex;
     align-items: center;
     gap: 10px;
-    width: 100%;
+    padding: 4px 9px 9px;
 }
 
+/* Play/pause is the one control that has to survive every window size, including the ones that drop
+   the buttons to its right, so its glyph is a step larger than the text buttons' at 14px. The chip
+   itself is 30 by 26, a step under the 34 by 28 every other button here is held to and clear of
+   WCAG 2.2 SC 2.5.8's 24 by 24 floor by 6px across and 2px down. It is carried by its place at the
+   head of the row and by that glyph rather than by being the largest chip on it, and stepping it
+   down under the rest evens the row's rhythm instead of announcing one button louder than the nine
+   beside it. min-width is restated because .btn's 34px floor would otherwise clamp the width back
+   up, and the padding goes so the glyph is centred in the smaller chip rather than measured against
+   8px a side it no longer has. */
+#bplay {
+    font-size: 14px;
+    width: 30px;
+    min-width: 30px;
+    height: 26px;
+    padding: 0;
+}
+
+/* Two readouts bracketing the track: the bracket only means anything next to the timeline it
+   describes, and each holds a 62px floor so the digits cannot jitter sideways as they change. The
+   floor is what the narrow-width rule gives up, not this one: they are the first thing on the row
+   that is worth shrinking, because the track is what has to stay pressable. */
 .seek-time {
     font-family: 'SF Mono', 'Consolas', monospace;
     font-size: 12px;
-    color: rgba(255,255,255,0.9);
+    color: #e8e8ea;
     min-width: 62px;
     text-align: center;
     white-space: nowrap;
 }
 
+/* The track is the control, and this container is the full height of the row's content box, so a
+   scrub is a press anywhere across 28px rather than on the 4px line itself. min-height with
+   align-self: stretch rather than a fixed height, so the hit area is the row's own height and can
+   never be less than it: raise a button and the track follows. The floor is the buttons' own 28,
+   so the track is never the smaller target even before the stretch is taken into account, and it is
+   the same number the row's content height is made of, so the track cannot be what drives that
+   height either: it follows the buttons instead of leading them. min-width 0 lets the track give up
+   width instead of refusing to, which is what keeps every button on screen as the window narrows;
+   the width breakpoints are what decide when it has given up enough. Both the click and the drag
+   measure against this element's own getBoundingClientRect and normalise the pointer into 0 to 1, so
+   whatever sits to the left of it moves the rectangle without moving the mapping: the track's zero
+   is its own left edge wherever that lands. */
 .seekbar-container {
     flex: 1;
-    height: 24px;
+    min-width: 0;
+    align-self: stretch;
+    min-height: 28px;
     display: flex;
     align-items: center;
     cursor: pointer;
     position: relative;
 }
+/* 35% white on the #111114 backing, which composites to #646466 and is 3.2:1 on it: the 3:1 a
+   control has to reach against the surface it sits on. It is the unfilled part of the track, not an
+   indicator, but it is what tells the owner there is a timeline to press. */
 .seek-track {
     width: 100%;
     height: 4px;
-    background: rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.35);
     border-radius: 2px;
     position: relative;
     transition: height 0.12s;
@@ -199,10 +269,16 @@ video {
     opacity: 1;
 }
 
+/* Flat chips on the opaque backing, no tint of their own: a translucent fill over a translucent bar
+   was only ever readable because of what showed through, and nothing shows through any more. The
+   glyph is what identifies a button and it is 10.7:1 on the fill; the 1px border is a quiet 1.9:1
+   against it, a line of demarcation rather than an outline to read at a glance, and reaching 3:1 on
+   the border itself would need a near-#797979 edge that is louder than the rest of this chrome.
+   Hover and press are signalled by the fill alone, so no shadow is needed to lift them. */
 .btn {
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: rgba(255,255,255,0.9);
+    background: #303036;
+    border: 1px solid #5a5a63;
+    color: #e8e8ea;
     border-radius: 7px;
     padding: 4px 8px;
     font-size: 12px;
@@ -213,20 +289,17 @@ video {
     align-items: center;
     justify-content: center;
     white-space: nowrap;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     min-width: 34px;
     height: 28px;
 }
 .btn:hover {
-    background: rgba(255,255,255,0.2);
-    border-color: rgba(255,255,255,0.25);
+    background: #3a3a41;
+    border-color: #6b6b74;
     color: #fff;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .btn:active {
     transform: scale(0.95);
-    background: rgba(255,255,255,0.14);
+    background: #232328;
 }
 
 .vol-container {
@@ -244,10 +317,11 @@ video {
 }
 .vol-icon:hover { opacity: 1; }
 
+/* 35% white on the same backing as the seek track, for the same reason: #646466, 3.2:1. */
 .vol-slider {
     width: 60px;
     height: 3px;
-    background: rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.35);
     border-radius: 2px;
     cursor: pointer;
     position: relative;
@@ -280,11 +354,14 @@ video {
     width: 14px; height: 14px;
     display: block;
 }
+/* Loop on is a solid red chip with a bright red edge rather than a tint and a glow: a 30% red wash
+   composites to #582426 over this backing, which is 1.1:1 against the chip it is meant to replace,
+   and the glow had nothing left to glow against. The edge is what marks the state and it is 3.1:1
+   on the fill, which is the 3:1 a state indicator has to reach, and the glyph differs as well. */
 .btn-loop.active {
-    background: rgba(255,80,80,0.3);
-    border-color: rgba(255,100,100,0.5);
+    background: #8c2626;
+    border-color: #ff6b6b;
     color: #fff;
-    box-shadow: 0 0 8px rgba(255,80,80,0.3);
 }
 
 /* ==================== DRAWING OVERLAY ==================== */
@@ -315,10 +392,8 @@ body.drawmode #hud {
     flex-direction: row;
     align-items: stretch;
     z-index: 30;
-    background: rgba(0,0,0,0.82);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: #111114;
+    border: 1px solid #2e2e34;
     border-radius: 12px;
     padding: 5px 8px 5px 3px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.6);
@@ -456,66 +531,71 @@ body.drawmode #hud {
 }
 
 /* ==================== COMPACT LAYOUT FOR SMALL WINDOWS ==================== */
-/* The window has no minimum size any more, so both bars have to survive being squeezed. Measured
-   off the rules above, and in the row's own order, the bottom row's own minimum width is: play at
-   34, the four text buttons at about 35 to 39px each (their own text plus 8px of padding a side,
-   past the 34px floor), both time readouts at their 62px floor, volume at about 83 (15px icon, 5px
-   gap, 60px slider), loop and fullscreen at 34, so about 457px of items; then ten 10px gaps; then
-   48px of #hud padding, a 1px border and 14px of padding a side on .bar: about 635px. Nothing clips
-   the row, so under that it spills past the window and its right-hand buttons stop being clickable.
-   640 is that figure rounded up. Below it the row keeps #bplay, #tc and the seek bar, the top bar
-   keeps #bdraw, #bcls and the drag handle, and a mouse-only viewer is still able to pause. */
-@media (max-width: 640px) {
-    /* Hidden, and still reachable: the two seek steps and the two frame steps are the arrow keys
-       and comma and period, volume is the up and down arrows and M, loop is L, fullscreen is F or
-       F11, and each of those runs off the keyboard whatever its button looks like. The hide and
-       fill buttons are the bare H and C. Minimize has nowhere useful to go on a window this size.
-       The caption goes as well, since it is the one element here that ever crowded the window
-       buttons. The drag handle stays: what is left of the top bar is the pen, the cross and the
-       handle, so the window is still moved by dragging it with the controls up, and no keypress
-       stands between the owner and the window's position. */
-    #bseek-back, #bseek-fwd, #bprev, #bnext,
-    #tr, .vol-container, #bloop, #bfs,
+/* The window has no minimum size any more, so the block has to survive being squeezed on both axes.
+   Width first, measured off the rules above in the row's own order and at each control's own
+   minimum: play at its 30, the two readouts at their 62px floors, -5s at 34.5 and +5s at
+   37.5, -1F at 35.1 and +1F at 38.1 (each glyph at 12px plus 8px of padding and a 1px border a
+   side), volume at 83 (18px of emoji, a 5px gap and the 60px slider), loop and fullscreen at their
+   34px floors, where a 14px glyph needs only 32: about 450px of controls, then ten 10px gaps and
+   18px of padding, about 568px with a track of no width at all. A track worth pressing is about
+   120px, so 688 is where the whole row stops fitting and 700 is that with the few pixels of slack
+   another machine's font metrics are worth. Under 700 the buttons on the right go whole rather than
+   half: play/pause has left them, so there is no part of them left worth keeping, and what is lost
+   costs nothing on the keyboard. The two seek steps and the two frame steps are the arrow keys and
+   comma and period, volume is the up and down arrows and M, loop is L, fullscreen is F or F11, and
+   each of those runs off the keyboard whatever its button looks like, because a click fired by id
+   is dispatched by the DOM and does not care whether the button is on screen. What survives is
+   play/pause, both readouts and the whole track, so a mouse-only viewer is still able to pause and
+   to scrub. */
+@media (max-width: 700px) {
+    #bseek-back, #bseek-fwd, #bprev, #bnext, .vol-container, #bloop, #bfs { display: none; }
+}
+/* The top bar runs out of room on its own arithmetic, and on nothing to do with the row: the caption
+   is 60% of the window and the five window buttons with their 8px gaps are 172, so 0.6 of a window
+   plus 204 fits from 510 up and below that the buttons would be pushed off the right edge. Hide and
+   fill are the bare H and C either way and minimize has nowhere useful to go on a window this size,
+   so what is left up there is the pen, the cross and the drag handle, and the window is still moved
+   by dragging it with the controls up. The handle is absolute with inset: 0, so it fills the 48px
+   top bar already and costs the bottom block nothing: out of flow, and in the other bar besides.
+   What it does cost is the resize margin, 8px off three edges, and a press there belongs to the edge
+   handler and not to a move. The bottom stays at 0 rather than 8 because that band is the top bar's
+   own bottom 8px and not the row's: the row holds its own 9px of margin, 9px below and 4px above,
+   in the other bar besides, so insetting the handle there would hand back 8px of dead band under the
+   pen and the cross for no window that gains anything. Where the band and the block meet is a height
+   question, and it is answered by the max-height rule below rather than here. */
+@media (max-width: 510px) {
     .title-capsule, #bhide, #bfill, #bmin { display: none; }
-    /* The handle is absolute with inset: 0, so it fills the 48px top bar already and costs the
-       compact row nothing: out of flow, and in the other bar besides. What it does cost is the
-       resize margin, 8px off every edge, which is a tenth of an 80px window, and a press there
-       belongs to the edge handler and not to a move. Inset by that margin on three sides, leaving
-       a handle (window less 16) by 40px: 64 by 40 at an 80px window, of which the pen and the
-       cross take the middle 28, so the strip under them is (window less 16) by 10 and wears the
-       handle's own grab cursor. The bottom stays at 0 rather than 8 because handing those 8px back
-       leaves a 2px strip, and the only window that gains is one under 56px tall. */
     .drag-handle { inset: 8px 8px 0 8px; }
-    /* Hiding the caption leaves no flex gap behind it, so .winctrl is the top bar's only in-flow
-       child and space-between holds it against the right padding, 16px clear of the resize
-       margin. In the row the padding that came off goes to the seek bar: flex: 1 is already
-       1 1 0%, so it grows into the freed width, and its automatic minimum size is the one thing
-       that could stop it ever reaching zero. The time readout stays, it costs 62px and it is the
-       only thing left that says where in the video you are. */
-    #hud { padding-left: 16px; padding-right: 16px; }
-    .bar { padding-left: 6px; padding-right: 6px; }
-    .seekbar-container { min-width: 0; }
 }
-/* Under this the compact row runs out too: 46px of padding and border, 96px of button and time and
-   two 10px gaps put the seek bar's zero at 162px of window. Taking the row's own padding, its gap
-   and the time font down gives 42px back, which holds a seek bar a person can hit down to a 120px
-   window and leaves each side of the row at least 15px inside the window, clear of the 8px resize
-   margin. */
-@media (max-width: 220px) {
-    #hud { padding-left: 10px; padding-right: 10px; }
-    .bar { padding-left: 4px; padding-right: 4px; }
+/* Narrower than that the row is four controls, so the readouts are what has to give: 18px of
+   padding, play at 30, three 10px gaps and the two readouts at their 62px floors put the track's
+   zero at 202px of window, and a track worth pressing is about 120px, so 328 is where the full-size
+   digits stop paying for themselves. Under it the digits drop to 10px with no floor and the gaps to
+   6px, which is 162px of fixed width instead of 202, so the track grows to 166px at the switch and
+   widens from there as the window narrows: it is the track, not the digits, that has to stay
+   pressable. Below 162px of window there is no track left to press, which is the one thing this
+   layout gives up and only there; play/pause is at the left of the row from the very first pixel of
+   width and stays clickable, and every seek is on the keyboard. */
+@media (max-width: 328px) {
     .controls-row { gap: 6px; }
-    #tc { font-size: 10px; min-width: 0; }
+    #tc, #tr { font-size: 10px; min-width: 0; }
 }
-/* A 48px top bar and a 46px bar whose top edge sits 64px up the window meet at 112px of height.
-   Only the bottom bar gives ground: its own padding halves and the gap under it trims to 12px,
-   which keeps the row's controls clear of the top bar's buttons down to an 83px window and leaves
-   the seek strip 19px off the bottom edge, still outside the resize margin. The top bar keeps its
-   48px so its buttons never reach into the margin at the top edge, and the seek bar is never
-   hidden for height. Longhands only, so this composes with the two width rules above. */
-@media (max-height: 112px) {
-    .bar { padding-top: 4px; padding-bottom: 4px; }
-    #hud { padding-bottom: 12px; }
+/* Height, and the row is never hidden for it: it is 41px, it is the only bottom row there is, and
+   it carries play/pause and the whole track, so a window too short to hold everything must still be
+   able to pause and scrub. What a short window cannot hold is the top bar. The row is 41 from the
+   window's bottom edge, because it is 4 of air, 28 of controls and 9 of margin, so its top edge is
+   41 up. The top bar's box is 48 deep and its drag handle fills it, so the band reaches 48 down,
+   and 48 + 41 = 89 is where the two meet: below it the band lies over the top pixels of the row,
+   and a press there moves the window instead of pressing a control. 89 is the switch and the caption
+   is what goes, because it is the tallest thing up there (33px, ending 41px down) and the only one
+   carrying no function: it reaches the block's top edge at 41 + 41 = 82, so from 82 down the band
+   and the caption both lie over it. The five window buttons end 38px down and reach the block at
+   38 + 41 = 79, so from 79 down even they sit on it, and they are kept: H and C aside they are the
+   only way out of a window this size. 89 rather than 82 is the number here because the band reaches
+   the block first and it is the band that swallows the press. Longhands only, so this composes with
+   the width rules above. */
+@media (max-height: 89px) {
+    .title-capsule { display: none; }
 }
 </style>
 </head>
@@ -538,54 +618,54 @@ body.drawmode #hud {
     </div>
 </div>
 
-<!-- Bottom HUD – single row -->
+<!-- Bottom chrome: one row, in this order. Play/pause first and immediately left of the timeline,
+     the two readouts bracketing it, then the two seek steps, the two frame steps, volume, loop, and
+     fullscreen last. Plain flex with no order, so this markup is the visual order and the focus order. -->
 <div id="hud">
-    <div class="bar">
-        <div class="controls-row">
-            <button class="btn" id="bplay" title="Play/Pause">▶</button>
-            <button class="btn" id="bseek-back">-5s</button>
-            <button class="btn" id="bseek-fwd">+5s</button>
-            <button class="btn" id="bprev">-1F</button>
-            <button class="btn" id="bnext">+1F</button>
+    <div class="controls-row">
+        <button class="btn" id="bplay" title="Play/Pause">▶</button>
+        <span class="seek-time" id="tc">00:00:00</span>
 
-            <span class="seek-time" id="tc">00:00:00</span>
-
-            <div class="seekbar-container" id="seekbar-container">
-                <div class="seek-track">
-                    <div class="seek-fill" id="seek-fill"></div>
-                    <div class="seek-thumb" id="seek-thumb"></div>
-                </div>
+        <div class="seekbar-container" id="seekbar-container">
+            <div class="seek-track">
+                <div class="seek-fill" id="seek-fill"></div>
+                <div class="seek-thumb" id="seek-thumb"></div>
             </div>
-
-            <span class="seek-time" id="tr">-00:00:00</span>
-
-            <div class="vol-container">
-                <span class="vol-icon" id="vol-icon">🔊</span>
-                <div class="vol-slider" id="vol-slider">
-                    <div class="vol-fill" id="vol-fill"></div>
-                </div>
-            </div>
-
-            <button class="btn btn-loop" id="bloop" title="Loop: Off">
-                <svg viewBox="0 0 14 14" class="loop-svg" id="loop-off" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 4h9v7H2V7"/>
-                    <path d="M0.5 8.5L2 7l1.5 1.5"/>
-                </svg>
-                <svg viewBox="0 0 14 14" class="loop-svg" id="loop-on" style="display:none" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 4h9v7H2V4"/>
-                    <path d="M9.5 2.5L11 4l-1.5 1.5"/>
-                    <path d="M3.5 9.5L2 11l1.5 1.5"/>
-                </svg>
-            </button>
-            <button class="btn fs-btn" id="bfs" title="Fullscreen">
-                <svg viewBox="0 0 14 14">
-                    <path d="M1 1h4v1.5H2.5V5H1V1z
-                             M8 1h4v4h-1.5V2.5H8V1z
-                             M1 9h1.5v2.5H5V13H1V9z
-                             M12 9v4H9v-1.5h2.5V9H12z"/>
-                </svg>
-            </button>
         </div>
+
+        <span class="seek-time" id="tr">-00:00:00</span>
+
+        <button class="btn" id="bseek-back">-5s</button>
+        <button class="btn" id="bseek-fwd">+5s</button>
+        <button class="btn" id="bprev">-1F</button>
+        <button class="btn" id="bnext">+1F</button>
+
+        <div class="vol-container">
+            <span class="vol-icon" id="vol-icon">🔊</span>
+            <div class="vol-slider" id="vol-slider">
+                <div class="vol-fill" id="vol-fill"></div>
+            </div>
+        </div>
+
+        <button class="btn btn-loop" id="bloop" title="Loop: Off">
+            <svg viewBox="0 0 14 14" class="loop-svg" id="loop-off" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 4h9v7H2V7"/>
+                <path d="M0.5 8.5L2 7l1.5 1.5"/>
+            </svg>
+            <svg viewBox="0 0 14 14" class="loop-svg" id="loop-on" style="display:none" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 4h9v7H2V4"/>
+                <path d="M9.5 2.5L11 4l-1.5 1.5"/>
+                <path d="M3.5 9.5L2 11l1.5 1.5"/>
+            </svg>
+        </button>
+        <button class="btn fs-btn" id="bfs" title="Fullscreen">
+            <svg viewBox="0 0 14 14">
+                <path d="M1 1h4v1.5H2.5V5H1V1z
+                         M8 1h4v4h-1.5V2.5H8V1z
+                         M1 9h1.5v2.5H5V13H1V9z
+                         M12 9v4H9v-1.5h2.5V9H12z"/>
+            </svg>
+        </button>
     </div>
 </div>
 
@@ -642,7 +722,7 @@ body.drawmode #hud {
 
 <!-- Custom text input dialog (replaces window.prompt which crashes on macOS/WKWebView) -->
 <div id="text-dialog" style="display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
-  <div style="background:rgba(30,30,30,0.95);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:24px 28px;min-width:300px;box-shadow:0 16px 48px rgba(0,0,0,0.6);">
+  <div style="background:rgba(30,30,30,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:24px 28px;min-width:300px;box-shadow:0 16px 48px rgba(0,0,0,0.6);">
     <div style="color:#fff;font-size:14px;font-weight:500;margin-bottom:14px;">Enter text:</div>
     <input id="text-dialog-input" type="text" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:14px;outline:none;">
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
@@ -992,6 +1072,18 @@ document.addEventListener('mousedown', (e) => {
         startH = window.outerHeight;
     }
 });
+
+/* No handler of its own on .controls-row, and that is the point rather than an omission. The row
+   spans the full width, so a mousedown here would have to swallow every press on it, on a control
+   or on the bare backing, and swallowing the backing is what cost the bottom edge: for as long as
+   the chrome is up no press on the bottom 8px could start a resize, the two bottom corners
+   included. The 9px of padding under the controls holds the same line without touching a single
+   press, so the backing below and beside the controls reaches the edge handler and starts a resize
+   where it is meant to, and nothing above the padding does. #seekbar-container and #vol-slider keep
+   the stopPropagation they have always had, which is why scrubbing and volume work with the bar off
+   the bottom of the window, and stopPropagation rather than preventDefault there as here: cancelling
+   the default on a mousedown is what would suppress focus, and the press still belongs to the
+   control under it. */
 
 /* ====================== MOVE THE WINDOW WITH THE CHROME HIDDEN ====================== */
 // With the chrome hidden there is no title bar left to grab, so a press on the stage
