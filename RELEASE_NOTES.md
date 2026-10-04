@@ -1,3 +1,11 @@
+Dr.Player v2.0.0
+
+- Nothing in this release changed but the version number: no code, no dependency and no behaviour,
+  so there is nothing here that has not already been described under v1.0.0
+- It exists so that the update check added in v1.0.0 has something newer to report. A copy still
+  stamped 1.0.0 compares equal to the old tag rather than behind it, and equal is not newer, so the
+  chip would never appear for anyone already sitting on 1.0.0
+
 Dr.Player v1.0.0
 
 Window and Controls

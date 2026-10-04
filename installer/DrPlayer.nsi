@@ -24,10 +24,10 @@ Unicode true
 ; installer whose DisplayVersion says it is unset instead of quietly shipping a lie. A release is
 ; cut with the version read out of Cargo.toml, typed here once, from the repo root:
 ;
-;   makensis "-DAPP_VERSION=1.0.0" installer\DrPlayer.nsi
+;   makensis "-DAPP_VERSION=2.0.0" installer\DrPlayer.nsi
 ;
-; The quotes are load-bearing in PowerShell, which splits an unquoted -DAPP_VERSION=1.0.0 at the
-; dots and hands makensis APP_VERSION=1 and a second argument of .0.0.
+; The quotes are load-bearing in PowerShell, which splits an unquoted -DAPP_VERSION=2.0.0 at the
+; dots and hands makensis APP_VERSION=2 and a second argument of .0.0.
 ;
 !ifndef APP_VERSION
   !define APP_VERSION "0.0.0-UNSET"

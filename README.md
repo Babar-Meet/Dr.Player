@@ -92,7 +92,7 @@ Dr.Player/
 ├── Cargo.toml                   # Rust project manifest, and the source of truth for the version
 ├── Cargo.lock                   # Rust dependency lockfile
 ├── build.rs                     # Windows resource compilation (embeds icon.ico)
-├── RELEASE_NOTES.md             # v1.0.0 release notes
+├── RELEASE_NOTES.md             # v2.0.0 and v1.0.0 release notes
 ├── TESTING.md                   # Manual QA testing guide
 ├── LICENSE                      # Copyright notice
 └── README.md                    # This file
@@ -109,7 +109,7 @@ Dr.Player/
 
 **`TESTING.md`** — Step-by-step manual QA guide covering macOS-specific tests, draw mode operations, keyboard shortcut conflicts, cross-platform matrix, crash resilience, and regression checklist.
 
-**`RELEASE_NOTES.md`** — Documents changes in v1.0.0.
+**`RELEASE_NOTES.md`** — Documents changes in v2.0.0 and v1.0.0.
 
 **`installer/DrPlayer.nsi`** — NSIS installer for Windows. Installs into the current user's profile, so no administrator rights are needed. The version is not written in the script; it is passed in with `-DAPP_VERSION=x.y.z`, taken from `Cargo.toml`.
 
@@ -482,8 +482,8 @@ cargo build --release
 mkdir dist-installer
 
 # Pass the version in; read it from Cargo.toml rather than typing it twice.
-# Quote it: PowerShell splits an unquoted -DAPP_VERSION=1.0.0 at the dots.
-makensis "-DAPP_VERSION=1.0.0" installer\DrPlayer.nsi
+# Quote it: PowerShell splits an unquoted -DAPP_VERSION=2.0.0 at the dots.
+makensis "-DAPP_VERSION=2.0.0" installer\DrPlayer.nsi
 ```
 
 The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\release\dr-player.exe`, so build the binary first.
@@ -600,10 +600,10 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**Released** — v1.0.0. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed.
+**Released** — v2.0.0. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed.
 
 Evidence:
-- `version = "1.0.0"` in `Cargo.toml`, which is what the installer is told to stamp
+- `version = "2.0.0"` in `Cargo.toml`, which is what the installer is told to stamp
 - An NSIS installer that takes the version on the command line, so it cannot drift from the crate
 - Manual QA guide in `TESTING.md` and sample videos in `TESTING_videos/`
 - Known platform-specific issues documented in `docs/WEBVIEW_QUIRKS.md`
