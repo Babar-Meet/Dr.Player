@@ -79,10 +79,25 @@ video {
     gap: 8px;
     z-index: 2;
     pointer-events: auto;
+    /* Neither this row nor anything in it can give up width, and that is the whole fix for the
+       ellipses. The shrink used to be shared: a button had a 28px width and no flex-shrink of its
+       own, so a narrow window or a long caption squeezed it on the main axis while its height
+       stayed at 28, and a 50% radius on a box narrower than it is tall is an ellipse. The caption
+       is the one item on this bar that still shrinks, and it is the right one to shrink:
+       overflow: hidden drops its automatic minimum width to zero, and truncating a filename is
+       what a caption is for. margin-left: auto holds this row at the right-hand end when the
+       caption is display: none, which space-between does not do on its own with one item left in
+       flow: without it the window buttons slide left onto the drag handle at exactly the widths
+       where that handle has become the whole bar. */
+    flex: none;
+    margin-left: auto;
 }
 /* Same flat chip as the bottom row, for the same reason, and still 28 by 28: this is the window's
-   own row and its target size was never part of the bottom chrome rework. */
+   own row and its target size was never part of the bottom chrome rework. flex: none is the
+   button's half of the rule above and it says the same thing: 28 is the size, not the starting
+   point of a negotiation. */
 .wbtn {
+    flex: none;
     width: 28px; height: 28px;
     border-radius: 50%;
     background: #303036;
@@ -104,6 +119,15 @@ video {
     background: #e81123;
     border-color: #e81123;
     color: #fff;
+}
+/* The icons on this row are the loop icon in the loop's convention: 14 by 14 out of a 14-unit
+   viewBox, currentColor so the colour and the hover state are the button's own, and the shape
+   carried by strokes rather than fills so a 1.4 line stays a line at this size. Sized here rather
+   than left to .btn because .btn is not this row, and 14 is what clears a 28 round chip on all
+   sides without the mark touching the border. */
+.wbtn svg {
+    width: 14px; height: 14px;
+    display: block;
 }
 
 /* ==================== BOTTOM CHROME: ONE ROW ==================== */
@@ -635,6 +659,225 @@ body.drawmode #hud {
     cursor: pointer;
 }
 
+/* ==================== KEYBOARD SHORTCUTS OVERLAY ==================== */
+/* A top-level sibling of #hud, not a child of it, and that placement is load-bearing rather than
+   tidiness: the focusin guard at the foot of this file blurs anything focused inside a hidden
+   #hud, and the chrome auto-hides after three seconds, so a panel inside #hud would have its
+   focus thrown out of it and then vanish with it. Fixed over the whole viewport at z 200, above
+   the text dialog's 100 and the draw bar's 30, because it is modal and nothing behind it is
+   meant to be reached. */
+.keys-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    /* The dim is the picture being dimmed, not a surface of its own. The panel on top of it is
+       opaque, so every colour inside the panel is fixed by its own declared values and does not
+       depend on what happens to be playing underneath. The one thing the panel cannot fix is the
+       colour immediately outside its own edge, which is this at 0.75 over whatever frame is
+       playing: 75% is the deepest dim that still reads as the video underneath rather than as a
+       black window, and the worst case it leaves is a white frame composited to #404040. */
+    background: rgba(0,0,0,0.75);
+}
+.keys-overlay.open {
+    display: flex;
+}
+
+/* Opaque #111114, the same flat backing as .controls-row and #drawbar, and opaque for the same
+   reason they are: a rgba panel over arbitrary video has no determinate background colour, so
+   nothing inside it has a determinate contrast ratio at all.
+
+   The colours and what they reach, computed rather than guessed. On this #111114, L 0.0057:
+   #e8e8ea is 15.4:1 and #fff 18.9:1 for the keys, the title and the group headings; #c9c9cf is
+   11.4:1 for the descriptions, the focus line and the footer hint. #e8e8ea on the #1c1c20 key
+   cap is 13.9:1 and on the #303036 Close button 10.7:1, all of them over the 4.5:1 SC 1.4.3
+   asks of text.
+
+   The panel's own edge is the one boundary that has no determinate neighbour, so it is the
+   border's job and the border is the lightest thing in here: #9a9aa2 is 6.8:1 on this backing and
+   3.7:1 on that #404040 worst case, which is the 3:1 SC 1.4.11 asks of a component boundary.
+   The app's own #6b6b74 cannot do it, and no dim can make it: a dark panel on a darkened
+   backdrop is dark on dark at every alpha, so the darker the dim the worse the edge gets, which
+   is why this is a lighter rule on the outside and not a darker one. Inside the panel the
+   #6b6b74 chips are measured against this backing and clear 3.6:1, and the #e00 focus ring is
+   4.2:1 on it. The two #3a3a41 rules under the header and over the footer are dividers at
+   1.7:1 and are nothing else: they separate regions, they identify no control and carry no
+   state, which is all SC 1.4.11 covers. No translucent hairline stands in for any of the three.
+
+   The height cap is the other half of the job. The window has no minimum and can be a few
+   hundred pixels tall, and it is frameless, so content that overflowed would be painted outside
+   the visible area with no way to reach it. max-height caps the panel against the viewport,
+   overflow hidden clips whatever does not fit, and the scroll region below is the only thing in
+   here that ever scrolls. */
+.keys-panel {
+    background: #111114;
+    border: 1px solid #9a9aa2;
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+    color: #e8e8ea;
+    font-size: 12.5px;
+    text-align: left;
+    width: min(560px, 100%);
+    max-height: calc(100vh - 24px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Header and footer are outside the scroll region, so the title and the way out are in the same
+   place at a window 200 tall as at one 1000 tall. flex none on both, because a header that
+   shrank to fit would be a title with its top cut off rather than a shorter header. */
+.keys-head {
+    flex: none;
+    padding: 14px 18px 12px;
+    border-bottom: 1px solid #3a3a41;
+}
+.keys-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+}
+
+/* The one line the panel takes focus on, and it is a p and not the Close button on purpose: a
+   dialog that opens on its own dismiss control announces "Close, button" and the list behind it
+   is never read. No aria-describedby either, for the same reason: with structured content
+   underneath, a description attribute announces the whole list as one unbroken string. */
+.keys-intro {
+    flex: none;
+    padding: 10px 18px 6px;
+    font-size: 12px;
+    color: #c9c9cf;
+}
+
+/* The scrollable region is focusable, because a scroll only the wheel can drive is SC 2.1.1
+   Keyboard, Level A. tabindex 0 on the container and not on the list inside it, so Tab reaches
+   the scroll once rather than once per row. min-height 0 is the flex floor: without it a tall
+   list refuses to shrink below its own content and pushes the panel past the max-height above,
+   which is the overflow this window could not show.
+
+   The scrollbar is hidden and the scroll is not. The owner saw the native bar down the
+   right-hand side of the list, with an arrow button at each end of it, and called it ugly, and
+   a frameless window that styles no scrollbar of its own gets exactly that bar. Two properties
+   carry it and both are declared, because they are the pair: scrollbar-width is the standard
+   one and keeps the behaviour whatever the engine does with its own pseudo-elements, and
+   ::-webkit-scrollbar is the pseudo-element this webview has always taken the rule from.
+   Neither of them touches overflow-y, so the box still scrolls and still has a height to scroll
+   within, and tabindex 0 stays on it, so the arrow keys and the page keys still reach the rows
+   below the fold. What goes is the bar, its thumb and its two buttons, and nothing that
+   scrolls. */
+.keys-scroll {
+    overflow-y: auto;
+    min-height: 0;
+    padding: 8px 18px 12px;
+    scrollbar-width: none;
+}
+.keys-scroll::-webkit-scrollbar {
+    display: none;
+}
+.keys-scroll:focus {
+    outline: 2px solid #e00;
+    outline-offset: -2px;
+}
+
+.keys-groups {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px 28px;
+}
+.keys-group-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #e8e8ea;
+    padding-bottom: 5px;
+}
+.keys-rows {
+    list-style: none;
+    padding: 0;
+}
+/* The row is the grid: description on the left, keys on the right in a column sized by the widest
+   of them, so the eye scans down one edge instead of hunting across for the keys. baseline on
+   both axes so a two-line description keeps its first line level with its cap. */
+.keys-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 14px;
+    align-items: baseline;
+    padding: 3px 0;
+    color: #c9c9cf;
+}
+.keys-keys {
+    display: flex;
+    gap: 3px;
+    align-items: baseline;
+    justify-content: flex-end;
+    white-space: nowrap;
+}
+/* Monospace on the key column only, which is what lets it read as a column, and it carries no ARIA
+   role of its own, so the description beside it is what says what the key does. */
+.keys-key {
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 11px;
+    color: #e8e8ea;
+    background: #1c1c20;
+    border: 1px solid #6b6b74;
+    border-radius: 4px;
+    padding: 1px 5px;
+    text-align: right;
+}
+
+/* The footer names the two dismissal routes that are not the button and not Escape, so all four
+   are discoverable from inside the panel rather than only from the keyboard. */
+.keys-foot {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 18px 14px;
+    border-top: 1px solid #3a3a41;
+    font-size: 11.5px;
+    color: #c9c9cf;
+}
+.keys-close {
+    flex: none;
+    font: inherit;
+    font-weight: 500;
+    color: #e8e8ea;
+    background: #303036;
+    border: 1px solid #6b6b74;
+    border-radius: 7px;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+.keys-close:hover {
+    background: #3a3a41;
+}
+.keys-close:focus {
+    outline: 2px solid #e00;
+    outline-offset: 2px;
+}
+
+/* Two group columns when the window is short and one when it is tall, and it is height that
+   decides because at a short height the constraint is how much list there is: six groups in two
+   columns is half the height, and at a tall height one column is the easier read. Two media
+   queries rather than a collapsing grid because the panel's height is the window's height and
+   there is nothing for a grid to measure. The width rule comes after the height one, so a window
+   that is both short and narrow lands on one column: two columns of rows at 300 wide is
+   unreadable, and a list that scrolls is not. */
+@media (max-height: 620px) {
+    .keys-groups { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 520px) {
+    .keys-groups { grid-template-columns: 1fr; }
+}
+
 /* ==================== COMPACT LAYOUT FOR SMALL WINDOWS ==================== */
 /* The window has no minimum size any more, so the block has to survive being squeezed on both axes.
    Width first, every item at its own minimum in the row's order: play at 30, the two time readouts
@@ -666,21 +909,37 @@ body.drawmode #hud {
     #bseek-back, #bseek-fwd, #bprev, #bnext, #rate-group, .vol-container, #bloop, #bfs { display: none; }
 }
 /* The top bar runs out of room on its own arithmetic, and on nothing to do with the row: the caption
-   is 60% of the window and the five window buttons with their 8px gaps are 172, so 0.6 of a window
-   plus 204 fits from 510 up and below that the buttons would be pushed off the right edge. Hide and
-   fill are the bare H and C either way and minimize has nowhere useful to go on a window this size,
-   so what is left up there is the pen, the cross and the drag handle, and the window is still moved
-   by dragging it with the controls up. The handle is absolute with inset: 0, so it fills the 48px
-   top bar already and costs the bottom block nothing: out of flow, and in the other bar besides.
-   What it does cost is the resize margin, 8px off three edges, and a press there belongs to the edge
-   handler and not to a move. The bottom stays at 0 rather than 8 because that band is the top bar's
-   own bottom 8px and not the row's: the row holds its own 9px of margin, 9px below and 4px above,
-   in the other bar besides, so insetting the handle there would hand back 8px of dead band under the
-   pen and the cross for no window that gains anything. Where the band and the block meet is a height
-   question, and it is answered by the max-height rule below rather than here. */
-@media (max-width: 510px) {
+   is 60% of the window and the six window buttons with their 8px gaps are 6 x 28 plus 5 x 8, which
+   is 208, so 0.6 of a window plus 240 (208 of buttons and 32 of the bar's own padding) fits from
+   600 up and below that the buttons would be pushed off the right edge. The switch is that
+   arithmetic solved for the width: 240 on the 0.4 the caption does not claim is 600. Hide and fill
+   are the bare H and C either way and minimize has nowhere useful to go on a window this size, so
+   what is left up there is the question mark, the pen, the cross and the drag handle, and the window
+   is still moved by dragging it with the controls up. The handle is absolute with inset: 0, so it
+   fills the 48px top bar already and costs the bottom block nothing: out of flow, and in the other
+   bar besides. What it does cost is the resize margin, 8px off three edges, and a press there
+   belongs to the edge handler and not to a move. The bottom stays at 0 rather than 8 because that
+   band is the top bar's own bottom 8px and not the row's: the row holds its own 9px of margin, 9px
+   below and 4px above, in the other bar besides, so insetting the handle there would hand back 8px
+   of dead band under the pen and the cross for no window that gains anything. Where the band and
+   the block meet is a height question, and it is answered by the max-height rule below rather than
+   here. */
+@media (max-width: 600px) {
     .title-capsule, #bhide, #bfill, #bmin { display: none; }
     .drag-handle { inset: 8px 8px 0 8px; }
+}
+/* Help is the last thing to go on this bar, and it is the one control that says what the keys are:
+   a window too narrow for the caption has already lost the file name, and this is the control that
+   puts the shortcuts back within reach. It has its own switch rather than riding the one above
+   because it is not on the same arithmetic: with the caption gone, what is left up here is this
+   button, the pen and the cross, which is 3 x 28 plus 2 x 8, so 100, and 100 plus the bar's own 32
+   of padding is 132, which is the narrowest window that can hold all three without pushing the last
+   one off the right edge. Below it the pen and the cross stay, because those two are the only way
+   out of a window this size, and their own 2 x 28 plus 8 is 64, which with the same 32 of padding
+   is 96 and so clears 132 by 36. The bottom row's switches are untouched and nothing here moves
+   them: this is the top bar's arithmetic and the top bar's alone. */
+@media (max-width: 132px) {
+    #bhelp { display: none; }
 }
 /* Narrower than that the row is four controls, so the readouts are what has to give: 18px of
    padding, play at 30, three 10px gaps and the two readouts at their 62px floors put the track's
@@ -704,7 +963,7 @@ body.drawmode #hud {
    and a press there moves the window instead of pressing a control. 89 is the switch and the caption
    is what goes, because it is the tallest thing up there (33px, ending 41px down) and the only one
    carrying no function: it reaches the block's top edge at 41 + 41 = 82, so from 82 down the band
-   and the caption both lie over it. The five window buttons end 38px down and reach the block at
+   and the caption both lie over it. The six window buttons end 38px down and reach the block at
    38 + 41 = 79, so from 79 down even they sit on it, and they are kept: H and C aside they are the
    only way out of a window this size. 89 rather than 82 is the number here because the band reaches
    the block first and it is the band that swallows the press. Longhands only, so this composes with
@@ -724,9 +983,48 @@ body.drawmode #hud {
 <div id="topbar">
     <div class="drag-handle" id="drag-handle"></div>
     <div class="title-capsule" id="title">Dr.Player</div>
+    <!-- Six window buttons, and the markup order is the visual order: help, hide, fill, draw,
+         minimize, close. Help leads because it is the one control that says what the keys are,
+         and a lost user needs it before they need anything else up here.
+
+         Hide and fill are inline SVG rather than the characters they were, and both swap two
+         variants by display exactly as #bloop does, because Unicode has no glyph that says either
+         idea. Hide is an eye while the controls are up and the same eye crossed through while they
+         are not, which is the button's own effect read back: you can see them, you cannot. Fill is
+         two nested rectangles on one frame, so the pair says contain and fill without either state
+         being carried by colour alone: while the picture fits inside the frame the inner rectangle
+         stands well clear of it and the gap is the bars, and while the picture fills the frame the
+         same inner rectangle runs out to all four edges and the frame crops it. The arrows this
+         replaced read as resize at this size rather than as either state. It is not the fullscreen
+         shape two rows down: that one is corner brackets around an open square, and there is nothing
+         here that can be mistaken for an eye.
+
+         All four are aria-hidden and the accessible name is the button's title, which is how the
+         loop and fullscreen buttons already work: an inline svg with no name of its own contributes
+         nothing to the button's name, so title is what a screen reader reads. -->
     <div class="winctrl">
-        <button class="wbtn" id="bhide" title="Toggle on-screen controls">◎</button>
-        <button class="wbtn" id="bfill" title="Fill: shape the window to the video (C)">▢</button>
+        <button class="wbtn" id="bhelp" title="Keyboard shortcuts (/)">?</button>
+        <button class="wbtn" id="bhide" title="Toggle on-screen controls">
+            <svg viewBox="0 0 14 14" id="hide-shown" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 7C2.6 4.4 4.7 3.2 7 3.2S11.4 4.6 13 7c-1.6 2.6-3.7 3.8-6 3.8S2.6 9.6 1 7z"/>
+                <circle cx="7" cy="7" r="2"/>
+            </svg>
+            <svg viewBox="0 0 14 14" id="hide-hidden" style="display:none" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 7C2.6 4.4 4.7 3.2 7 3.2S11.4 4.6 13 7c-1.6 2.6-3.7 3.8-6 3.8S2.6 9.6 1 7z"/>
+                <circle cx="7" cy="7" r="2"/>
+                <path d="M1.4 12.6L12.6 1.4"/>
+            </svg>
+        </button>
+        <button class="wbtn" id="bfill" title="Fill: shape the window to the video (C)">
+            <svg viewBox="0 0 14 14" id="fill-off" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="1.1" y="1.1" width="11.8" height="11.8"/>
+                <rect x="4" y="4" width="6" height="6"/>
+            </svg>
+            <svg viewBox="0 0 14 14" id="fill-on" style="display:none" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="1.1" y="1.1" width="11.8" height="11.8"/>
+                <rect x="3" y="3" width="8" height="8"/>
+            </svg>
+        </button>
         <button class="wbtn" id="bdraw" title="Draw on video">✎</button>
         <button class="wbtn" id="bmin" title="Minimize">—</button>
         <button class="wbtn close" id="bcls" title="Close">✕</button>
@@ -800,6 +1098,162 @@ body.drawmode #hud {
     </div>
 </div>
 
+<!-- Keyboard shortcuts. A top-level sibling of #hud, for the reason the CSS above gives: inside
+     #hud the focus guard and the three-second hide would take this panel's focus and then the
+     panel itself. Header and footer sit outside the scroll region and the list is the only part
+     that scrolls, so the title and the way out stay put at any height. Every key below is a
+     binding that exists in this file and works; nothing dead, unreachable or contradicted is
+     listed, and the four keys that mean one thing while playing and another while drawing say so
+     in their own row rather than being printed once without a scope. A row is one action and not
+     one key: two keys that reach the same action share that row and both are printed on it,
+     because the owner read "Fullscreen on or off" twice over as two separate things to look up. -->
+<div id="keys-overlay" class="keys-overlay">
+  <div class="keys-panel" role="dialog" aria-modal="true" aria-labelledby="keys-title">
+    <div class="keys-head">
+      <h2 class="keys-title" id="keys-title">Keyboard shortcuts</h2>
+    </div>
+    <p class="keys-intro" id="keys-focus" tabindex="-1">Tab moves through this panel, Escape closes it.</p>
+    <div class="keys-scroll" id="keys-list" tabindex="0">
+      <ul class="keys-groups">
+        <li class="keys-group">
+          <h3 class="keys-group-title">Playback</h3>
+          <ul class="keys-rows">
+            <li class="keys-row">
+              <span class="keys-desc">Play or pause</span>
+              <span class="keys-keys"><kbd class="keys-key">Space</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Loop the video on or off</span>
+              <span class="keys-keys"><kbd class="keys-key">L</kbd></span>
+            </li>
+          </ul>
+        </li>
+        <li class="keys-group">
+          <h3 class="keys-group-title">Seeking</h3>
+          <ul class="keys-rows">
+            <li class="keys-row">
+              <span class="keys-desc">Back five seconds</span>
+              <span class="keys-keys"><kbd class="keys-key">&#8592;</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Forward five seconds</span>
+              <span class="keys-keys"><kbd class="keys-key">&#8594;</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Step one frame back</span>
+              <span class="keys-keys"><kbd class="keys-key">,</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Step one frame forward</span>
+              <span class="keys-keys"><kbd class="keys-key">.</kbd></span>
+            </li>
+          </ul>
+        </li>
+        <li class="keys-group">
+          <h3 class="keys-group-title">Speed</h3>
+          <ul class="keys-rows">
+            <li class="keys-row">
+              <span class="keys-desc">Slower</span>
+              <span class="keys-keys"><kbd class="keys-key">[</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Faster</span>
+              <span class="keys-keys"><kbd class="keys-key">]</kbd></span>
+            </li>
+          </ul>
+        </li>
+        <li class="keys-group">
+          <h3 class="keys-group-title">Window and display</h3>
+          <ul class="keys-rows">
+            <li class="keys-row">
+              <span class="keys-desc">Fullscreen on or off</span>
+              <span class="keys-keys"><kbd class="keys-key">F</kbd><kbd class="keys-key">F11</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Reshape the window to the video's shape</span>
+              <span class="keys-keys"><kbd class="keys-key">C</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Hide or show the on-screen controls</span>
+              <span class="keys-keys"><kbd class="keys-key">H</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Leave fullscreen</span>
+              <span class="keys-keys"><kbd class="keys-key">Escape</kbd></span>
+            </li>
+          </ul>
+        </li>
+        <li class="keys-group">
+          <h3 class="keys-group-title">Audio</h3>
+          <ul class="keys-rows">
+            <li class="keys-row">
+              <span class="keys-desc">Volume up</span>
+              <span class="keys-keys"><kbd class="keys-key">&#8593;</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Volume down</span>
+              <span class="keys-keys"><kbd class="keys-key">&#8595;</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Mute or unmute</span>
+              <span class="keys-keys"><kbd class="keys-key">M</kbd></span>
+            </li>
+          </ul>
+        </li>
+        <li class="keys-group">
+          <h3 class="keys-group-title">Annotation, while drawing is open</h3>
+          <ul class="keys-rows">
+            <li class="keys-row">
+              <span class="keys-desc">Pen tool</span>
+              <span class="keys-keys"><kbd class="keys-key">P</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Line tool; loop while playing</span>
+              <span class="keys-keys"><kbd class="keys-key">L</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Arrow tool</span>
+              <span class="keys-keys"><kbd class="keys-key">A</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Rectangle tool</span>
+              <span class="keys-keys"><kbd class="keys-key">R</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Circle tool; reshapes the window while playing</span>
+              <span class="keys-keys"><kbd class="keys-key">C</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Hand tool; hides the controls while playing</span>
+              <span class="keys-keys"><kbd class="keys-key">H</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Stroke size, two to twenty</span>
+              <span class="keys-keys"><kbd class="keys-key">0</kbd>&ndash;<kbd class="keys-key">9</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Hand tool; hold the shape with the mouse</span>
+              <span class="keys-keys"><kbd class="keys-key">Delete</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Clear every shape, still undoable</span>
+              <span class="keys-keys"><kbd class="keys-key">Backspace</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Leave drawing; leaves fullscreen while playing</span>
+              <span class="keys-keys"><kbd class="keys-key">Escape</kbd></span>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+    <div class="keys-foot">
+      <span class="keys-hint">/ or a click outside closes this too.</span>
+      <button class="keys-close" id="keys-close" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Drawing toolbar -->
 <div id="drawbar">
   <button class="dhandle" title="Drag to move toolbar">
@@ -844,7 +1298,7 @@ body.drawmode #hud {
     <div class="dsep"></div>
     <button class="dbtn" id="bundo" title="Undo (Mouse Back)">↩</button>
     <button class="dbtn" id="bredo" title="Redo (Mouse Forward)">↪</button>
-    <button class="dbtn" id="bclear" title="Clear All (Ctrl+Backspace)">✕</button>
+    <button class="dbtn" id="bclear" title="Clear All (Backspace)">✕</button>
     <div class="dsep"></div>
     <button class="dbtn" id="bclose-draw" title="Exit Draw Mode">✕ Exit</button>
   </div>
@@ -875,6 +1329,12 @@ let hudLock   = false;
 let hudPin    = false;
 let fillMode  = false;
 let loopEnabled = false;
+// The one thing that says "the shortcuts panel is open", and nothing else does. It is set and
+// cleared only by openHelp and closeHelp below, and read by three places: the toggle and the
+// panel's own key handling, the global player handler, and the edge cursor. It lives up here
+// rather than with the panel because the cursor helper below is called before that section is
+// reached.
+let helpOpen  = false;
 // Try playback with audio; fall back to muted if browser blocks
 vid.muted = false;
 vid.volume = 1.0;
@@ -949,6 +1409,10 @@ let curX = window.innerWidth / 2, curY = window.innerHeight / 2;
 // The only writer of the body cursor: an inline cursor cannot be overruled by a
 // stylesheet rule, so the edge cursors survive the chrome being hidden
 function applyBodyCursor() {
+    // The shortcuts panel is modal and its backdrop covers all four edges, so while it is up no
+    // edge of the window is a resize target. An edge cursor there would be promising a press
+    // that cannot happen, because the panel stops the press before it reaches the edge handler.
+    if (helpOpen) { document.body.style.cursor = 'default'; return; }
     const w = window.innerWidth;
     const h = window.innerHeight;
     const top = curY < RESIZE_MARGIN;
@@ -963,21 +1427,23 @@ function applyBodyCursor() {
     else if (left || right) cursor = 'ew-resize';
     document.body.style.cursor = cursor;
 }
-// The ◎ glyph is written from the resulting state, here and nowhere else
-function renderHideGlyph() {
-    bhide.textContent = topbar.classList.contains('show') ? '◎' : '◌';
+// Which of the two eye variants is on screen is written from the resulting state, here and nowhere
+// else. Shown while the chrome is up, crossed out while it is not.
+function renderHideIcon() {
+    document.getElementById('hide-shown').style.display  = topbar.classList.contains('show') ? '' : 'none';
+    document.getElementById('hide-hidden').style.display = topbar.classList.contains('show') ? 'none' : '';
 }
 function showControls() {
     topbar.classList.add('show');
     hud.classList.add('show');
-    renderHideGlyph();
+    renderHideIcon();
     applyBodyCursor();
 }
 function hideControls() {
     clearTimeout(hideT);
     topbar.classList.remove('show');
     hud.classList.remove('show');
-    renderHideGlyph();
+    renderHideIcon();
     applyBodyCursor();
 }
 function showUI() {
@@ -1013,8 +1479,11 @@ function toggleControls() {
 let videoAspect = null; // videoWidth / videoHeight, null until metadata yields a usable size
 let fillOwnResize = null; // {w, h} of the shape fill mode last asked the window to take
 
-function renderFillGlyph() {
-    bfill.textContent = fillMode ? '▣' : '▢';
+// Which of the two arrow variants is on screen is written from fillMode, here and nowhere else.
+// Inward while the picture fits inside the frame, outward while it fills it.
+function renderFillIcon() {
+    document.getElementById('fill-off').style.display = fillMode ? 'none' : '';
+    document.getElementById('fill-on').style.display  = fillMode ? '' : 'none';
 }
 function readVideoAspect() {
     const w = vid.videoWidth;
@@ -1056,7 +1525,7 @@ const FILL_SHAPE_TOL_PX = 12;
 function disengageFill() {
     fillMode = false;
     document.body.classList.remove('fillmode');
-    renderFillGlyph();
+    renderFillIcon();
 }
 function checkFillShapeLock() {
     if (!fillMode || !videoAspect) return;
@@ -1080,7 +1549,7 @@ function checkFillShapeLock() {
 function toggleFill() {
     fillMode = !fillMode;
     document.body.classList.toggle('fillmode', fillMode);
-    renderFillGlyph();
+    renderFillIcon();
     // Only on the way in. Turning it off leaves the window exactly where the user left it.
     if (fillMode) snapWindowToVideo();
 }
@@ -1266,6 +1735,13 @@ window.addEventListener('blur', () => {
 /* ====================== WINDOW BUTTONS ====================== */
 document.getElementById('bmin').onclick = () => window.ipc.postMessage('minimize');
 document.getElementById('bcls').onclick = () => window.ipc.postMessage('close');
+// The one way in from the mouse, and it is the same function the bare / calls below, so the panel
+// opens and closes and takes focus identically whichever route opened it and there is no second
+// copy of any of it. A declaration, not a call site reached by name, so this line runs before the
+// text of openHelp further down is evaluated and still gets the hoisted binding. No toggle: the
+// panel is modal and its dim covers this button, so a second press here cannot arrive while it is
+// up. The overlay's own / stays the only key that opens it.
+document.getElementById('bhelp').onclick = openHelp;
 
 /* ====================== TIME FORMATTER ====================== */
 function fmt(s) {
@@ -1492,10 +1968,12 @@ vid.addEventListener('loadedmetadata', () => {
 // foot of this file switches on e.code with no focus guard, so without this a keystroke aimed at the
 // field would fire a shortcut instead of reaching it. Left to it are c for fill, h for the chrome,
 // l for loop, m for mute, f and F11 for fullscreen, space for play, the brackets for the rate, comma
-// and period for the frame steps and the arrow keys for seeking and volume. The typing of 0.0625 is
-// the sharpest case, because the period in it is a frame step that pauses the picture. The arrows are
-// default-prevented here, which the player handler does not do for them, so the caret stays put as
-// well as the volume. The same stop the text dialog's input makes for the same reason.
+// and period for the frame steps, the arrow keys for seeking and volume, and / for the shortcuts
+// panel, which is why a slash typed into the box inserts a slash and opens nothing. The typing of
+// 0.0625 is the sharpest case, because the period in it is a frame step that pauses the picture.
+// The arrows are default-prevented here, which the player handler does not do for them, so the
+// caret stays put as well as the volume. The same stop the text dialog's input makes for the same
+// reason.
 rateInput.addEventListener('keydown', (e) => {
     e.stopPropagation();
     switch (e.code) {
@@ -1636,31 +2114,143 @@ function requestFullscreen(enter) {
 document.getElementById('bfs').onclick = () => requestFullscreen(!isFullscreen);
 
 /* ====================== KEYBOARD SHORTCUTS ====================== */
+/* Bare /, and bare because it was measured rather than argued: the owner pressed it on this
+   build and Shift + / never arrived while the same key with no modifier opened the panel every
+   time. WebView2 holds back a modified key the way it holds back Ctrl+H, Ctrl+Backspace and the
+   rest of its own chords, and every binding in this file is bare for that one reason, the one
+   Shift left being the Tab trap's own Shift+Tab below, which is focus order rather than a
+   binding. So the label is the key rather than the character it makes on a layout, and it is the
+   slash on the US layout that is printed too. Do not put the Shift back on this to make the label
+   read nicer: the label would then promise a key that does not work.
+
+   Still bound to the physical key rather than to a character, so e.code rather than e.key: e.key
+   is '?' on a US layout and whatever that layout prints on every other one, and the bare / is the
+   one that arrives on all of them. Slash is claimed nowhere else in this file, so this has
+   exactly one owner. It lives here rather than in the global handler because the panel has to
+   open in draw mode too, and that handler bails on the draw bar: a user who has lost track of
+   which mode they are in is exactly who needs to read this.
+
+   Registered before the global handler on purpose, for the same reason. Escape, the toggle and
+   Tab all have to be taken here first: the global handler sends Escape to leave fullscreen, and
+   the draw mode handler sits on this same node, where stopping propagation would not reach it
+   and only stopping immediate propagation does. */
+const keysOverlay = document.getElementById('keys-overlay');
+const keysFocus   = document.getElementById('keys-focus');
+const keysList    = document.getElementById('keys-list');
+const keysClose   = document.getElementById('keys-close');
+// Everything Tab can reach in here, in markup order, and the whole of it: the scrollable list,
+// which is focusable so the keyboard can scroll it, and the Close button. The focus target is
+// tabindex -1 and is therefore not a third stop.
+const keysStops = [keysList, keysClose];
+
+function openHelp() {
+    helpOpen = true;
+    keysOverlay.classList.add('open');
+    applyBodyCursor();  // the edge cursors would be claiming a resize the panel cannot start
+    // On the static line at the top of the content, not on the Close button: a dialog that takes
+    // focus on its own dismiss control announces "Close, button" and the list behind it is never
+    // read at all.
+    keysFocus.focus();
+}
+
+function closeHelp() {
+    // Focus goes back to the body, deliberately. It is not handed to a control in the chrome,
+    // because the focusin guard blurs anything focused inside a hidden #hud, so a control handed
+    // focus there is bounced straight back out again and the owner is left nowhere. The blur is
+    // taken here, while the panel is still up, rather than left to display:none, so the target
+    // is a decision rather than a side effect.
+    if (keysOverlay.contains(document.activeElement)) document.activeElement.blur();
+    helpOpen = false;
+    keysOverlay.classList.remove('open');
+    applyBodyCursor();
+}
+
+keysClose.addEventListener('click', closeHelp);
+// A press anywhere in the overlay stops here, so it never reaches the document mousedown
+// handlers behind it: no resize from an edge, no window drag from the stage, nothing drawn on the
+// canvas. Only a click on the dim itself dismisses, because a press on the panel is a press on a
+// dialog and not an outside click.
+keysOverlay.addEventListener('mousedown', e => e.stopPropagation());
+keysOverlay.addEventListener('click', e => {
+    if (e.target === keysOverlay) closeHelp();
+});
+
 document.addEventListener('keydown', e => {
+    const isToggle = e.code === 'Slash';
+    if (helpOpen) {
+        // Escape closes the panel and is consumed here. Left to the global handler it would leave
+        // fullscreen instead, with the panel still up, and that is WCAG 2.1.2 No Keyboard Trap:
+        // focus is held while the way out of it does not work.
+        if (e.code === 'Escape') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            closeHelp();
+            return;
+        }
+        // The toggle again closes, and the repeat guard is load-bearing in both directions: a
+        // held key repeats keydown, which would otherwise strobe the panel open and shut. It is
+        // kept on a bare key for that reason rather than dropped with the modifier: autorepeat
+        // repeats whatever is held, chord or no chord.
+        if (isToggle && !e.repeat) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            closeHelp();
+            return;
+        }
+        // Tab and Shift+Tab cycle the two stops and never leave the panel. Without this a Tab from
+        // here walks straight out into the chrome behind the overlay, which is the difference
+        // between a modal dialog and a covered one.
+        if (e.code === 'Tab') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const i = keysStops.indexOf(document.activeElement);
+            const n = keysStops.length;
+            const next = i < 0 ? (e.shiftKey ? n - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + n) % n;
+            keysStops[next].focus();
+            return;
+        }
+        // Everything else stops here as well, which is what makes aria-modal="true" true rather
+        // than decorative: Space must not pause the video and the arrows must not seek it while a
+        // panel is sitting over it.
+        e.stopImmediatePropagation();
+        return;
+    }
+    if (isToggle && !e.repeat) {
+        e.preventDefault();
+        openHelp();
+    }
+});
+
+document.addEventListener('keydown', e => {
+    // The shortcuts panel owns the keyboard while it is up, so nothing below may act. The
+    // listener above already stops the key before it arrives; this is the same boolean written
+    // next to the handler it protects, and one boolean is the only thing that decides.
+    if (helpOpen) return;
     // Bail out early in draw mode — draw mode handles its own keys
     if (drawbar.classList.contains('open')) return;
-    // H toggles the chrome, fullscreen or not. No modifier test: this WebView2 never
-    // delivers modified keys to the page, so gating on ctrl/meta made the chord dead.
+    // H toggles the chrome, fullscreen or not. Bare, and left bare: WebView2 holds back a fixed
+    // set of its own browser chords and never delivers those to the page, which is what made the
+    // Ctrl+H this file once used dead. Other chords do arrive, plain Ctrl+letter among them, so
+    // this is a choice rather than a limit, and no modifier is tested anywhere below.
     if (e.code === 'KeyH') {
         e.preventDefault();
         toggleControls();
         return;
     }
     // C turns on fill mode, which reshapes the window to the video rather than changing how
-    // the picture is drawn. Bare for the same reason as H: this WebView2 never delivers
-    // modified keys to the page. In draw mode the early return above has already handed C to
-    // the circle tool, as with L and H.
+    // the picture is drawn. Bare for the same reason as H, and handed to the circle tool by the
+    // early return above while the draw bar is open, as with L and H.
     if (e.code === 'KeyC') {
         e.preventDefault();
         toggleFill();
         return;
     }
-    // [ and ] are the rate, one step down and one step up. Bare and by physical key for the same
-    // reason as H and C: this WebView2 never delivers modified keys to the page, so a chord is dead
-    // and a test on e.key is worse than dead, because a shifted character arrives as a different
-    // e.key altogether. Nothing else in this file claims BracketLeft or BracketRight, so the two
-    // keys have exactly one owner each, and the early return above has already handed them to
-    // nothing while the draw bar is open.
+    // [ and ] are the rate, one step down and one step up. Bare, and by physical key: e.code is
+    // layout-independent where e.key is not, and a shifted character arrives as a different e.key
+    // altogether, so a test on e.key would put these two keys somewhere else on a non-US layout.
+    // Nothing else in this file claims BracketLeft or BracketRight, so the two keys have exactly
+    // one owner each, and the early return above has already handed them to nothing while the
+    // draw bar is open.
     if (e.code === 'BracketLeft') {
         e.preventDefault();
         stepRate(-1);
@@ -2069,17 +2659,31 @@ document.addEventListener('keydown', (e) => {
     else if (k === 'c') { switchTool('circle'); e.preventDefault(); }
     else if (k === 'h') { switchTool('hand'); e.preventDefault(); }
     else if (e.key === 'Escape') { closeDrawMode(); e.preventDefault(); }
-    else if (k === 'delete' || k === 'backspace') {
-        if ((e.ctrlKey || e.metaKey) && drawbar.classList.contains('open')) {
-            e.preventDefault();
-            clearDrawCanvas();
-        } else if (selShape) {
+    else if (k === 'delete') {
+        // Delete removes the one shape that is picked up, and nothing else: no other key in this
+        // file claims Delete, and the picked-up shape only exists while the mouse button is held
+        // on it, so there is nothing to delete when it is null and nothing is prevented.
+        if (selShape) {
             saveDrawState();
             const idx = shapes.indexOf(selShape);
             if (idx >= 0) { shapes.splice(idx, 1); renderAll(); }
             selShape = null;
             e.preventDefault();
         }
+    }
+    else if (k === 'backspace') {
+        // Backspace clears every shape, and the default is cancelled whether or not there is
+        // anything to clear, because the key now means something in this mode.
+        //
+        // Bare, and the Ctrl+Backspace it replaced is gone: WebView2 reserves that chord and
+        // never delivers it to the page, so the old branch was correct and the key never
+        // arrived. The metaKey half went with it, because Windows has no Meta key to press and
+        // leaving it would keep half a condition that cannot fire on the platform this build
+        // ships to.
+        e.preventDefault();
+        // clearDrawCanvas saves the undo snapshot first, so clearing stays undoable. Nothing to
+        // clear means no snapshot, or the undo stack fills with empty frames.
+        if (shapes.length > 0) clearDrawCanvas();
     }
     else if (k >= '0' && k <= '9') {
         const v = parseInt(k);
