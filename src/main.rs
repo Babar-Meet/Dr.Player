@@ -135,6 +135,11 @@ video {
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 
+/* Left to right, in the markup: play/pause, the two seek steps, the two frame steps, the elapsed
+   time, the seek bar, the remaining time, volume, loop, fullscreen. Play/pause leads because every
+   desktop player put side by side puts it left of the timeline and none puts it after, and the
+   steps sit next to it. The row is plain flex and uses no order, so this markup is the visual order
+   and the focus order as well; a CSS order would put one of the three out of step with the others. */
 .controls-row {
     display: flex;
     align-items: center;
@@ -449,6 +454,69 @@ body.drawmode #hud {
     border: none;
     cursor: pointer;
 }
+
+/* ==================== COMPACT LAYOUT FOR SMALL WINDOWS ==================== */
+/* The window has no minimum size any more, so both bars have to survive being squeezed. Measured
+   off the rules above, and in the row's own order, the bottom row's own minimum width is: play at
+   34, the four text buttons at about 35 to 39px each (their own text plus 8px of padding a side,
+   past the 34px floor), both time readouts at their 62px floor, volume at about 83 (15px icon, 5px
+   gap, 60px slider), loop and fullscreen at 34, so about 457px of items; then ten 10px gaps; then
+   48px of #hud padding, a 1px border and 14px of padding a side on .bar: about 635px. Nothing clips
+   the row, so under that it spills past the window and its right-hand buttons stop being clickable.
+   640 is that figure rounded up. Below it the row keeps #bplay, #tc and the seek bar, the top bar
+   keeps #bdraw, #bcls and the drag handle, and a mouse-only viewer is still able to pause. */
+@media (max-width: 640px) {
+    /* Hidden, and still reachable: the two seek steps and the two frame steps are the arrow keys
+       and comma and period, volume is the up and down arrows and M, loop is L, fullscreen is F or
+       F11, and each of those runs off the keyboard whatever its button looks like. The hide and
+       fill buttons are the bare H and C. Minimize has nowhere useful to go on a window this size.
+       The caption goes as well, since it is the one element here that ever crowded the window
+       buttons. The drag handle stays: what is left of the top bar is the pen, the cross and the
+       handle, so the window is still moved by dragging it with the controls up, and no keypress
+       stands between the owner and the window's position. */
+    #bseek-back, #bseek-fwd, #bprev, #bnext,
+    #tr, .vol-container, #bloop, #bfs,
+    .title-capsule, #bhide, #bfill, #bmin { display: none; }
+    /* The handle is absolute with inset: 0, so it fills the 48px top bar already and costs the
+       compact row nothing: out of flow, and in the other bar besides. What it does cost is the
+       resize margin, 8px off every edge, which is a tenth of an 80px window, and a press there
+       belongs to the edge handler and not to a move. Inset by that margin on three sides, leaving
+       a handle (window less 16) by 40px: 64 by 40 at an 80px window, of which the pen and the
+       cross take the middle 28, so the strip under them is (window less 16) by 10 and wears the
+       handle's own grab cursor. The bottom stays at 0 rather than 8 because handing those 8px back
+       leaves a 2px strip, and the only window that gains is one under 56px tall. */
+    .drag-handle { inset: 8px 8px 0 8px; }
+    /* Hiding the caption leaves no flex gap behind it, so .winctrl is the top bar's only in-flow
+       child and space-between holds it against the right padding, 16px clear of the resize
+       margin. In the row the padding that came off goes to the seek bar: flex: 1 is already
+       1 1 0%, so it grows into the freed width, and its automatic minimum size is the one thing
+       that could stop it ever reaching zero. The time readout stays, it costs 62px and it is the
+       only thing left that says where in the video you are. */
+    #hud { padding-left: 16px; padding-right: 16px; }
+    .bar { padding-left: 6px; padding-right: 6px; }
+    .seekbar-container { min-width: 0; }
+}
+/* Under this the compact row runs out too: 46px of padding and border, 96px of button and time and
+   two 10px gaps put the seek bar's zero at 162px of window. Taking the row's own padding, its gap
+   and the time font down gives 42px back, which holds a seek bar a person can hit down to a 120px
+   window and leaves each side of the row at least 15px inside the window, clear of the 8px resize
+   margin. */
+@media (max-width: 220px) {
+    #hud { padding-left: 10px; padding-right: 10px; }
+    .bar { padding-left: 4px; padding-right: 4px; }
+    .controls-row { gap: 6px; }
+    #tc { font-size: 10px; min-width: 0; }
+}
+/* A 48px top bar and a 46px bar whose top edge sits 64px up the window meet at 112px of height.
+   Only the bottom bar gives ground: its own padding halves and the gap under it trims to 12px,
+   which keeps the row's controls clear of the top bar's buttons down to an 83px window and leaves
+   the seek strip 19px off the bottom edge, still outside the resize margin. The top bar keeps its
+   48px so its buttons never reach into the margin at the top edge, and the seek bar is never
+   hidden for height. Longhands only, so this composes with the two width rules above. */
+@media (max-height: 112px) {
+    .bar { padding-top: 4px; padding-bottom: 4px; }
+    #hud { padding-bottom: 12px; }
+}
 </style>
 </head>
 <body>
@@ -474,11 +542,11 @@ body.drawmode #hud {
 <div id="hud">
     <div class="bar">
         <div class="controls-row">
+            <button class="btn" id="bplay" title="Play/Pause">▶</button>
             <button class="btn" id="bseek-back">-5s</button>
             <button class="btn" id="bseek-fwd">+5s</button>
             <button class="btn" id="bprev">-1F</button>
             <button class="btn" id="bnext">+1F</button>
-            <button class="btn" id="bplay" title="Play/Pause">▶</button>
 
             <span class="seek-time" id="tc">00:00:00</span>
 
@@ -724,10 +792,7 @@ function toggleControls() {
 // nothing stretched. Off by default: contain and a black surround is the look the app has
 // always had.
 let videoAspect = null; // videoWidth / videoHeight, null until metadata yields a usable size
-// The window clamps a posted size to this box, so the JS side keeps out of it deliberately
-const MIN_WINDOW_DIM = 200;
-const MAX_WINDOW_W = 7680;
-const MAX_WINDOW_H = 4320;
+let fillOwnResize = null; // {w, h} of the shape fill mode last asked the window to take
 
 function renderFillGlyph() {
     bfill.textContent = fillMode ? '▣' : '▢';
@@ -737,24 +802,61 @@ function readVideoAspect() {
     const h = vid.videoHeight;
     videoAspect = (w > 0 && h > 0) ? w / h : null;
 }
-function clampDim(v, max) {
-    return Math.max(1, Math.min(max, Math.round(v)));
-}
-// Both axes are scaled by the same factor, never clamped one at a time, so a shape outside the
-// window's own limits keeps the ratio instead of re-introducing the bars the clamp would cause.
-function fitToWindowLimits(w, h) {
-    const grow = MIN_WINDOW_DIM / Math.min(w, h);
-    const shrink = Math.min(MAX_WINDOW_W / w, MAX_WINDOW_H / h);
-    const k = grow > 1 ? grow : (shrink < 1 ? shrink : 1);
-    return { w: clampDim(w * k, MAX_WINDOW_W), h: clampDim(h * k, MAX_WINDOW_H) };
+// A shape is posted exactly as asked, with no minimum and no maximum, so any size the owner drags
+// or a snap wants can reach the window. The one thing refused is a shape that is not a shape, and
+// the ratio correction is what can ask for one: it divides, and a NaN sails through a division and a
+// round alike, as does a fraction that rounds down to nothing. Either would reach tao as a window
+// of zero pixels. Both axes are rounded together, never clamped one at a time, so the ratio survives.
+function resizeShape(w, h) {
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+    return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
 }
 // Height is the axis kept: a wide frame then widens the window, so the owner sees more of the
 // picture rather than less. Does nothing when the ratio is not known yet.
 function snapWindowToVideo() {
     if (!fillMode || !videoAspect) return;
     const h = window.innerHeight;
-    const shape = fitToWindowLimits(h * videoAspect, h);
+    // Refused means nothing is posted, so nothing is remembered: a shape that never left the page
+    // cannot later look to the lock check like a snap that landed.
+    const shape = resizeShape(h * videoAspect, h);
+    if (!shape) return;
+    // Remembered so the lock check can tell this resize apart from an outside one: the window
+    // still wears its old shape until the posted size arrives.
+    fillOwnResize = shape;
     window.ipc.postMessage(`resize:${shape.w}:${shape.h}`);
+}
+// How far the window may sit from the video's shape, in pixels. Rounding the posted shape is
+// worth under a pixel on each axis, and the drag correction above already treats anything
+// within 2px on each axis as on the ratio, so a window the app locked itself can end a gesture
+// a few pixels off exact. 12px covers that at any frame shape and stays under the smallest real
+// break, because a snap leaving less than 12px of bars has not visibly broken anything.
+const FILL_SHAPE_TOL_PX = 12;
+// Something outside the app changed the window's shape. Fill mode gives way rather than argue:
+// the window is left exactly where Windows put it and the button stops claiming a mode that is
+// no longer happening. No corrective resize is posted, on purpose.
+function disengageFill() {
+    fillMode = false;
+    document.body.classList.remove('fillmode');
+    renderFillGlyph();
+}
+function checkFillShapeLock() {
+    if (!fillMode || !videoAspect) return;
+    // Mid-drag the in-app correction is what holds the ratio, so the window is never judged then.
+    if (resizing) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (w <= 0 || h <= 0) return;
+    // Arriving at the shape fill mode itself asked for is the snap landing, not a break, and it
+    // is passed over once. Judged here it would read the pre-snap shape and cancel the mode the
+    // owner had just asked for. Nothing is remembered after this, so an ignored event cannot
+    // silence the check later.
+    const own = fillOwnResize;
+    fillOwnResize = null;
+    if (own && Math.abs(w - own.w) <= FILL_SHAPE_TOL_PX && Math.abs(h - own.h) <= FILL_SHAPE_TOL_PX) return;
+    // contain fits the whole frame inside the window, so bars fall on one axis only: the sides
+    // when the window is wider than the frame, the top and bottom when it is taller.
+    const bars = videoAspect * w >= h ? w - h * videoAspect : h - w / videoAspect;
+    if (bars > FILL_SHAPE_TOL_PX) disengageFill();
 }
 function toggleFill() {
     fillMode = !fillMode;
@@ -837,11 +939,16 @@ document.addEventListener('mousemove', (e) => {
                 if (Math.abs(dragW - startW) >= Math.abs(dragH - startH)) h = dragW / videoAspect;
                 else w = dragH * videoAspect;
             }
-            const shape = fitToWindowLimits(w, h);
-            // Already on the ratio: post nothing, so a held cursor cannot cause jitter
-            if (Math.abs(shape.w - dragW) <= 2 && Math.abs(shape.h - dragH) <= 2) return;
-            newW = shape.w;
-            newH = shape.h;
+            const shape = resizeShape(w, h);
+            // A shape that is not a shape is not posted, and guessing one would move the window
+            // somewhere the cursor never went, so the drag goes through uncorrected, which is
+            // exactly what fill mode off would have done with it.
+            if (shape) {
+                // Already on the ratio: post nothing, so a held cursor cannot cause jitter
+                if (Math.abs(shape.w - dragW) <= 2 && Math.abs(shape.h - dragH) <= 2) return;
+                newW = shape.w;
+                newH = shape.h;
+            }
         }
         resizeW = newW;
         resizeH = newH;
@@ -1162,6 +1269,8 @@ function resizeDrawCanvas() {
     renderAll();
 }
 window.addEventListener('resize', resizeDrawCanvas);
+// Fill mode watches the same event for a shape it did not ask for
+window.addEventListener('resize', checkFillShapeLock);
 resizeDrawCanvas();
 
 function saveDrawState() {
@@ -1523,6 +1632,16 @@ fn load_icon(bytes: &[u8]) -> Option<Icon> {
     Icon::from_rgba(img.rgba_data().to_vec(), img.width(), img.height()).ok()
 }
 
+// A posted size is applied exactly as asked, with no minimum and no maximum, so the window can be
+// dragged or snapped to any size at all. What is refused is a size that is not one: tao reaches
+// SetWindowPos by rounding a logical size into u32 pixels, and a NaN, an infinity and a negative all
+// round to zero there, as does anything under half a pixel. A zero sized window is one the owner
+// cannot drag back out of, so such a message is dropped and the window keeps the size it has. One
+// pixel is the smallest real window, not a limit anyone can feel.
+fn is_postable_size(w: f64, h: f64) -> bool {
+    w.is_finite() && h.is_finite() && w >= 1.0 && h >= 1.0
+}
+
 // The window is the only authority on fullscreen, so the page hears it from here
 fn push_fullscreen_state(window: &Window, webview: &wry::WebView) {
     let state = window.fullscreen().is_some();
@@ -1629,9 +1748,9 @@ async fn main() -> wry::Result<()> {
                     let parts: Vec<&str> = msg.split(':').collect();
                     if parts.len() == 3 {
                         if let (Ok(w), Ok(h)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
-                            let w = w.clamp(200.0, 7680.0);
-                            let h = h.clamp(200.0, 4320.0);
-                            let _ = window.set_inner_size(tao::dpi::LogicalSize::new(w, h));
+                            if is_postable_size(w, h) {
+                                let _ = window.set_inner_size(tao::dpi::LogicalSize::new(w, h));
+                            }
                         }
                     }
                 }
