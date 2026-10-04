@@ -17,7 +17,21 @@ Unicode true
 !cd ".."
 
 !define APP_NAME     "Dr.Player"
-!define APP_VERSION  "0.1.0"
+; The version is supplied on the command line and never written here. Cargo.toml is the single
+; source of truth, so a number typed into this script is a second copy of it and a second copy is
+; how this file and the crate drifted apart once already. The default below is a deliberately
+; wrong sentinel rather than a plausible one, so a bare `makensis installer\DrPlayer.nsi` builds an
+; installer whose DisplayVersion says it is unset instead of quietly shipping a lie. A release is
+; cut with the version read out of Cargo.toml, typed here once, from the repo root:
+;
+;   makensis "-DAPP_VERSION=1.0.0" installer\DrPlayer.nsi
+;
+; The quotes are load-bearing in PowerShell, which splits an unquoted -DAPP_VERSION=1.0.0 at the
+; dots and hands makensis APP_VERSION=1 and a second argument of .0.0.
+;
+!ifndef APP_VERSION
+  !define APP_VERSION "0.0.0-UNSET"
+!endif
 !define APP_PUBLISHER "Babariya Meet"
 !define APP_EXE      "dr-player.exe"
 !define APP_HELP     "How to open a video.txt"

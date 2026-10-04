@@ -1,6 +1,6 @@
 [package]
 name = "dr-player"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -13,6 +13,13 @@ tao = "0.28"
 ico = "0.3"
 serde_json = "1"
 rand = "0.8"
+# One HTTPS GET of one JSON document per launch, so the client is here for its TLS stack and for
+# very little else: rustls with ring, which keeps OpenSSL out of a Windows binary that gets shipped
+# and installed. Default features off leaves out http2, charset, cookies, the system proxy and the
+# json feature, the last of which is redundant because serde_json is already a dependency and does
+# the parsing. TLS roots still work through it; the system-proxy feature only reads the machine's
+# WPAD settings, and HTTP_PROXY and HTTPS_PROXY are honoured without it.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [build-dependencies]
 winres = "0.1"

@@ -130,6 +130,89 @@ video {
     display: block;
 }
 
+/* ==================== UPDATE PROMPT ==================== */
+/* One chip between the caption and the window buttons, and being inside #topbar rather than beside
+   it is what makes "never shown while the chrome is hidden" a fact about the tree instead of
+   something to remember: the bar fades out after three seconds and this goes with it, and draw
+   mode takes the whole bar away with the one display: none it already applies. It is display: none
+   until the window says a newer release exists, and there is no timer, no poll and no retry behind
+   that: one answer per launch, which is all this is allowed to do.
+
+   The chip is the window's own language rather than a new one: 28 tall like the six buttons beside
+   it, radius 7 and a 1px #5a5a63 edge like every chip on the bottom row, and the #303036 fill those
+   chips use, so a prompt about an update does not look like a dialog laid over the video. Centred in
+   the bar's 48 it runs from 10 to 38 down, the band the window buttons occupy, which is 2px clear of
+   the 8px resize margin along the top edge and 3px clear of the 41 the bottom row's block reaches:
+   a press on this chip can neither resize the window nor land on the row.
+
+   97 wide, which is the two 1px borders, the two 8px paddings, the 14 of arrow, two 5px gaps,
+   "Update" at 12px Segoe UI and the 18 of the dismiss box. The width arithmetic that spends that
+   is on the 600px rule below, which is the only rule it takes part in.
+
+   Contrast, computed rather than guessed. #e8e8ea on #303036 is 10.7:1, the same two colours the
+   bottom row's chips already use, over the 4.5:1 SC 1.4.3 asks of the word and over the 3:1 SC
+   1.4.11 asks of the arrow beside it; hover is #3a3a41 with #fff on it at 11.3:1. The one boundary
+   here with no determinate neighbour is the chip's own outer edge, which can land on any frame, and
+   the #5a5a63 border is what carries it: 6.8:1 on a white frame and 3.1:1 on a black one, so it
+   clears 3:1 at both ends of the range rather than only against a middle one. Opaque fill, no glass
+   and nothing here that depends on what is playing underneath. */
+.update-pill {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 8px;
+    margin-left: 10px;
+    border: 1px solid #5a5a63;
+    border-radius: 7px;
+    background: #303036;
+    color: #e8e8ea;
+    font-size: 12px;
+    font-weight: 500;
+    /* flex: none is this chip's half of the rule on the window buttons: 28 and 97 are the sizes,
+       not the starting points of a negotiation, and the caption is what gives up width. z-index 2
+       puts it above the drag handle, which fills the whole bar underneath it. */
+    flex: none;
+    position: relative;
+    z-index: 2;
+    pointer-events: auto;
+}
+.update-pill.show {
+    display: flex;
+}
+.update-pill:hover {
+    background: #3a3a41;
+    border-color: #6b6b74;
+}
+/* Two buttons inside the chip, both taking their colour from it rather than carrying a fill of
+   their own, which is what signalling hover with the fill alone means here. Native buttons so both
+   are announced as buttons and both are reachable by Tab, which costs no binding: Enter and Space
+   activate a button everywhere else in this chrome already. */
+.update-open, .update-x {
+    display: flex;
+    align-items: center;
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.update-open {
+    gap: 5px;
+}
+/* The up arrow, 14 by 14 out of a 14-unit viewBox with the shape carried by strokes, which is what
+   every other mark on this bar does, and currentColor so the glyph takes the chip's own colour and
+   its hover. */
+.update-open svg {
+    width: 14px; height: 14px;
+    display: block;
+}
+.update-x {
+    width: 18px; height: 18px;
+    justify-content: center;
+}
+
 /* ==================== BOTTOM CHROME: ONE ROW ==================== */
 /* #hud is the one element that carries the show state and the whole row is inside it, so
    showControls and hideControls keep writing one class on one element and the chrome can never come
@@ -923,9 +1006,19 @@ body.drawmode #hud {
    below and 4px above, in the other bar besides, so insetting the handle there would hand back 8px
    of dead band under the pen and the cross for no window that gains anything. Where the band and
    the block meet is a height question, and it is answered by the max-height rule below rather than
-   here. */
+   here.
+
+   The update prompt rides this rule rather than carrying one of its own, so everything under 600 is
+   the bar it was: the prompt goes with the caption, the 132px rule below is untouched by it, and
+   nothing is measured twice. Above 600 it costs what its own comment gives, 97 plus the 10 it stands
+   off the caption, which is 107 on top of the 240 above, so 347 rather than 240 is the fixed cost
+   up here and 347 on the 0.4 the caption does not claim is 868: that, not 600, is the width at which
+   the caption is given its whole 60% again. Between 600 and 868 it is up to 107 narrower than it
+   was, which is the trade its own overflow and ellipsis exist for, and dismissing the prompt hands
+   every one of those pixels back, because a display: none item is out of the row and the flex line
+   is laid out again without it. */
 @media (max-width: 600px) {
-    .title-capsule, #bhide, #bfill, #bmin { display: none; }
+    .title-capsule, #update-pill, #bhide, #bfill, #bmin { display: none; }
     .drag-handle { inset: 8px 8px 0 8px; }
 }
 /* Help is the last thing to go on this bar, and it is the one control that says what the keys are:
@@ -983,6 +1076,23 @@ body.drawmode #hud {
 <div id="topbar">
     <div class="drag-handle" id="drag-handle"></div>
     <div class="title-capsule" id="title">Dr.Player</div>
+    <!-- The update prompt, and the only thing on this bar that is not always there. The answer
+         arrives from the window after the page has loaded, so this is display: none until
+         window.showUpdateAvailable() runs, which the window's own code does and nothing else can.
+         Click only, and the webview is never navigated: the first button asks the window to hand an
+         address to the shell and the window knows which address that is, and the second puts the
+         prompt away for the rest of this session. Both are aria-hidden-free: the names are the
+         visible text and the title, and the glyphs inside carry nothing. -->
+    <div class="update-pill" id="update-pill">
+        <button class="update-open" title="A newer release is on GitHub. Opens the releases page in your browser.">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 12.4V2.2"/>
+                <path d="M3.2 6L7 2.2 10.8 6"/>
+            </svg>
+            <span>Update</span>
+        </button>
+        <button class="update-x" title="Dismiss"><span aria-hidden="true">✕</span></button>
+    </div>
     <!-- Six window buttons, and the markup order is the visual order: help, hide, fill, draw,
          minimize, close. Help leads because it is the one control that says what the keys are,
          and a lost user needs it before they need anything else up here.
@@ -1742,6 +1852,45 @@ document.getElementById('bcls').onclick = () => window.ipc.postMessage('close');
 // panel is modal and its dim covers this button, so a second press here cannot arrive while it is
 // up. The overlay's own / stays the only key that opens it.
 document.getElementById('bhelp').onclick = openHelp;
+
+/* ====================== OPTIONAL UPDATE PROMPT ====================== */
+/* The window asks GitHub once per launch whether the newest published release is newer than this
+   build, and calls showUpdateAvailable when it is. Nothing here asks for that: the answer is never
+   fetched from the page, which this page's own CSP forbids anyway, since connect-src allows
+   127.0.0.1 and nothing else. No timer, no poll, no retry and no decision to wait for sits behind
+   any of it, and the video has been playing since before the request went out. */
+const updatePill = document.getElementById('update-pill');
+// Dismissal lasts for this session and no longer: nothing on disk, no storage, no cookie, so the
+// next launch offers the prompt again if that release is still newer. That is the difference between
+// a prompt and a setting, and it is also why the prompt comes back with the chrome rather than
+// staying on top of the picture.
+let updateDismissed = false;
+
+// The one writer of this chip's state. Reached from the window's hook below, which is installed as
+// an initialization script and therefore exists before this file does, so an answer cannot be lost
+// by arriving early.
+function paintUpdatePill() {
+    if (updateDismissed) return;
+    updatePill.classList.add('show');
+}
+window.paintUpdatePill = paintUpdatePill;
+// An answer that landed before this file ran is waiting on the flag that hook sets, and this is
+// the only other way the chip ever appears. The flag is cleared either way so a later answer is
+// painted by the hook rather than here.
+if (window.__drUpdatePending) {
+    window.__drUpdatePending = false;
+    paintUpdatePill();
+}
+
+// This page is never navigated and is never handed a URL to load: it asks the window to open one
+// address with the shell, and the window holds the address. Clicking costs the picture nothing.
+updatePill.querySelector('.update-open').addEventListener('click', () => {
+    window.ipc.postMessage('open_release_page');
+});
+updatePill.querySelector('.update-x').addEventListener('click', () => {
+    updateDismissed = true;
+    updatePill.classList.remove('show');
+});
 
 /* ====================== TIME FORMATTER ====================== */
 function fmt(s) {
@@ -2707,6 +2856,7 @@ window.setTitle  = name => { document.getElementById('title').textContent = name
 
 use clap::Parser;
 use std::path::PathBuf;
+use std::time::Duration;
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -2748,6 +2898,183 @@ fn push_fullscreen_state(window: &Window, webview: &wry::WebView) {
     let _ = webview.evaluate_script(&format!("window.setFullscreenState({});", state));
 }
 
+// Where the answer comes from, and the one address the shell is ever asked to open. Both are
+// constants so the page is never given a URL at all: it asks the window to open the release page and
+// the window already knows which page that is.
+const RELEASES_API: &str = "https://api.github.com/repos/Babar-Meet/Dr.Player/releases/latest";
+const RELEASES_PAGE: &str = "https://github.com/Babar-Meet/Dr.Player/releases/latest";
+
+// A metadata GET to one host, and five seconds is generous for that while still being a ceiling:
+// reqwest's timeout covers connect, handshake and body read as one deadline, so a network that has
+// gone quiet cannot leave a request alive behind the video. Nothing here is retried.
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(5);
+
+// Dr.Player also ships inside PDEA's Electron app, as resources/dr-player.exe, and PDEA updates as
+// a unit with an updater of its own. A bundled copy compiles in this same version number, so
+// without this it would tell people a newer Dr.Player exists that they cannot install without
+// updating PDEA first: a promise nothing in that copy can keep. So a bundled copy skips the check
+// entirely rather than answering it wrongly.
+//
+// The test is a sibling app.asar, because that is what a packaged Electron app looks like from the
+// inside and this executable can see its own neighbours. PDEA has to change nothing for it to be
+// true, which is the reason for this and not another: PDEA is a separate codebase on its own
+// release cycle, and an argument the two of them could disagree about is one that eventually would.
+// Reading the directory rather than anything passed in also means there is no channel between them
+// at all, and a standalone copy sitting in a folder that happens to hold an app.asar is not a shape
+// Electron produces.
+//
+// DRPLAYER_EMBEDDED forces the answer either way without a rebuild, which is what makes the bundled
+// behaviour testable on a machine where nothing is bundled: any value other than 0, no, false or off
+// means embedded and skips the check, those four mean standalone and run it whatever the directory
+// says, and unset or empty leaves the answer to the probe above.
+fn is_embedded_copy() -> bool {
+    match std::env::var("DRPLAYER_EMBEDDED") {
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "no" | "false" | "off"
+        ),
+        Err(_) => beside_an_electron_bundle(),
+    }
+}
+
+// Every failure answers no rather than guessing: the cost of being wrong about a standalone copy is
+// one prompt about a release that does exist, and the cost of the other way round is a bundled copy
+// that has gone quiet about every release from here on.
+fn beside_an_electron_bundle() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let Some(dir) = exe.parent() else {
+        return false;
+    };
+    dir.join("app.asar").exists()
+}
+
+// MAJOR.MINOR.PATCH, and nothing else is accepted. A leading v is dropped first because that is how
+// the tags in this repository are written. Anything that will not parse into three numbers answers
+// None rather than a guess, so a prerelease, a bare "0.4", a tag with a build suffix and a tag that
+// is a whole sentence all decline in the same way, and a prompt built on a guess is worse than none.
+fn parse_version(tag: &str) -> Option<(u64, u64, u64)> {
+    let trimmed = tag.trim();
+    let body = trimmed
+        .strip_prefix('v')
+        .or_else(|| trimmed.strip_prefix('V'))
+        .unwrap_or(trimmed);
+    let mut parts = body.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    let patch = parts.next()?.parse::<u64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
+}
+
+// Newer, and only newer: equal is not newer, so a build of the newest release is never told about
+// itself. A version on either side that does not parse means no update, which is the one answer that
+// is always safe to give.
+fn is_newer_release(latest_tag: &str, current: &str) -> bool {
+    match (parse_version(latest_tag), parse_version(current)) {
+        (Some(latest), Some(mine)) => latest > mine,
+        _ => false,
+    }
+}
+
+// The one request, and every way it can go wrong is the same answer: no prompt. No network, a DNS
+// failure, a TLS failure, a rate limit (GitHub allows about 60 unauthenticated requests an hour per
+// IP address, so a limit reached here is usually somebody else's doing), a 404 because no release
+// has been published, a body that is not JSON, a missing or non-string tag: all of them return
+// false, none of them is shown to anyone, none is logged to a dialog and none of them throws. The
+// caller does not wait for this and nothing in the window depends on it finishing.
+async fn newer_release_published() -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(UPDATE_TIMEOUT)
+        // GitHub answers a request with no User-Agent with 403, which without this would be a
+        // silent no-prompt on every launch, forever.
+        .user_agent(concat!("Dr.Player/", env!("CARGO_PKG_VERSION")))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+    let response = match client.get(RELEASES_API).send().await {
+        Ok(response) => response,
+        Err(_) => return false,
+    };
+    if !response.status().is_success() {
+        return false;
+    }
+    let body = match response.text().await {
+        Ok(body) => body,
+        Err(_) => return false,
+    };
+    let json: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(json) => json,
+        Err(_) => return false,
+    };
+    match json.get("tag_name").and_then(|tag| tag.as_str()) {
+        Some(tag) => is_newer_release(tag, env!("CARGO_PKG_VERSION")),
+        None => false,
+    }
+}
+
+// The one Windows API this file calls directly, declared rather than pulled in through a bindings
+// crate because it is a single call in a program that already links shell32 through everything else
+// on this platform, and the crate would weigh more than the rest of this dependency added together.
+#[cfg(target_os = "windows")]
+#[link(name = "shell32")]
+extern "system" {
+    fn ShellExecuteW(
+        hwnd: *mut core::ffi::c_void,
+        operation: *const u16,
+        file: *const u16,
+        parameters: *const u16,
+        directory: *const u16,
+        show: i32,
+    ) -> *mut core::ffi::c_void;
+}
+
+// The shell's own mechanism, and not this window's: ShellExecuteW with the open verb hands the
+// address to whatever the owner has registered as their browser, which is the same handoff PDEA
+// makes with shell.openExternal on this machine. It must not go through the webview, because
+// navigating the webview would take the video away from under the person watching it.
+#[cfg(target_os = "windows")]
+fn open_in_default_browser(url: &str) {
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+    const SW_SHOWNORMAL: i32 = 1;
+    let verb = wide("open");
+    let file = wide(url);
+    // SAFETY: the signature is ShellExecuteW's, the two pointers it reads are NUL-terminated UTF-16
+    // built here and alive across the call, the three that are null are documented as null, and
+    // nothing is read back. A return of 32 or below is the shell declining, which this app has no
+    // surface to report and does not: a prompt that cannot open a browser says nothing rather than
+    // getting in the way of the picture.
+    let _ = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+}
+
+// The same handoff off Windows, through the launcher each of those platforms ships, so this file
+// still builds where the app is built for them. The Windows path is the one that ships.
+#[cfg(not(target_os = "windows"))]
+fn open_in_default_browser(url: &str) {
+    let launcher = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(launcher).arg(url).spawn();
+}
+
 #[tokio::main]
 async fn main() -> wry::Result<()> {
     // Install panic hook for graceful crash handling
@@ -2782,6 +3109,10 @@ async fn main() -> wry::Result<()> {
 
     let event_loop = EventLoopBuilder::<String>::with_user_event().build();
     let proxy = event_loop.create_proxy();
+    // Cloned before the IPC handler takes the original below, because the answer to the update
+    // check has to reach the event loop from off it: the request is made by a task, and the task
+    // must not be the one holding the window up.
+    let update_proxy = proxy.clone();
 
     let app_icon = load_icon(include_bytes!("../resources/icon.ico"));
 
@@ -2800,6 +3131,13 @@ async fn main() -> wry::Result<()> {
         "window.addEventListener('DOMContentLoaded',function(){{window.loadVideo({});window.setTitle({});}});",
         safe_url, safe_title
     );
+    // The update prompt's hook, installed as an initialization script so that it exists before any
+    // page script does. The request below is fired once the window is up, and an answer can arrive
+    // before the page has finished parsing; the flag is what such an answer waits on, because
+    // without it a prompt that arrived early would be an evaluate_script into a document that is
+    // not there yet and would be lost for the rest of the session. It carries no data, only the
+    // fact that an answer came, and nothing else in the page can set it.
+    let update_init = "window.showUpdateAvailable = function () { if (window.paintUpdatePill) window.paintUpdatePill(); else window.__drUpdatePending = true; };";
 
     let mut builder = WebViewBuilder::new(&window)
         .with_html(HTML)
@@ -2813,10 +3151,25 @@ async fn main() -> wry::Result<()> {
 
     let webview = builder
         .with_initialization_script(&init_script)
+        .with_initialization_script(update_init)
         .with_ipc_handler(move |msg| {
             let _ = proxy.send_event(msg.body().to_string());
         })
         .build()?;
+
+    // Once per launch, after the window and the webview are up, so the file server, the video and
+    // the chrome are all running before anything leaves the machine, and once is the whole of the
+    // frequency: GitHub allows about 60 unauthenticated API requests an hour per IP address, and a
+    // player that asked more often would spend that budget on one person watching one window.
+    // Nothing waits for the answer, the task runs on the runtime the local file server already
+    // uses, and a copy bundled inside PDEA never reaches this line at all.
+    if !is_embedded_copy() {
+        tokio::spawn(async move {
+            if newer_release_published().await {
+                let _ = update_proxy.send_event("update_available".to_string());
+            }
+        });
+    }
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -2844,6 +3197,12 @@ async fn main() -> wry::Result<()> {
                     push_fullscreen_state(&window, &webview);
                 } else if msg == "drag_window" {
                     let _ = window.drag_window();
+                } else if msg == "update_available" {
+                    // The page may not have parsed yet, which is what the hook's flag is for.
+                    let _ = webview.evaluate_script("window.showUpdateAvailable();");
+                } else if msg == "open_release_page" {
+                    // The shell, never the webview: the video stays exactly where it is.
+                    open_in_default_browser(RELEASES_PAGE);
                 } else if msg.starts_with("resize:") {
                     let parts: Vec<&str> = msg.split(':').collect();
                     if parts.len() == 3 {

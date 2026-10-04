@@ -23,22 +23,25 @@ The project is intended for:
 ## Features
 
 - **Video playback** with play/pause, seek, frame stepping, volume control
-- **7 drawing tools**: Pen (freehand), Line, Arrow, Rectangle, Circle, Text, Hand (select/move)
+- **6 drawing tools**: Pen (freehand), Line, Arrow, Rectangle, Circle, Hand (select/move)
 - **Undo/redo** (50-level history) via toolbar buttons or mouse buttons 3/4
 - **Custom color picker** with 6 preset swatches + HTML color picker
-- **Stroke size** control (1–20) with keyboard shortcuts (0–9)
+- **Stroke size** slider, 1–20; the number keys `0`–`9` reach the even sizes in that range, 2 to 20
 - **Mid-draw tool switching** — incomplete shapes are automatically cleaned up
 - **Draggable drawing toolbar** — repositionable via drag handle
-- **Text annotation** with custom HTML dialog (replaces `window.prompt()`)
-- **Global keyboard shortcuts**: Space, arrows, F/F11, M, L, period/comma
+- **Global keyboard shortcuts**: Space, arrows, `,`/`.`, F/F11, M, L, C, H, `[`/`]`, `/`, Escape
+- **Keyboard shortcuts panel** on `/` or the help button
 - **Draw mode** that isolates all draw keyboard shortcuts (prevents conflicts)
 - **Loop toggle** (single video repeat)
 - **Fullscreen** mode (F, F11, Escape)
 - **Custom window chrome** — frameless window with drag, resize (all edges), minimize, close
-- **Auto-hiding UI** — top bar and bottom HUD fade after 3s of inactivity (locks via ◎ button)
+- **Hide the on-screen controls** with H or the eye button, with a stage drag so the window still moves
+- **Fill mode** (C) — reshapes the window to the video's own shape instead of cropping the picture
+- **Auto-hiding UI** — top bar and bottom HUD fade after 3s of inactivity
+- **Playback speed** as a typed field, across the engine's own 0.0625 to 16 range
+- **Optional update check** — one HTTPS GET per launch, opens the releases page, silent inside PDEA
 - **macOS WKWebView crash mitigations**: deferred cursor mutations, custom dialogs, autoplay config
 - **Error resilience**: global JS error handlers, Rust panic hook
-- **73 regression tests** (Vitest + jsdom)
 - **Random security token** — video served via ephemeral localhost URL with 16-char random token
 - **Content Security Policy** restricting media/connect sources to localhost
 
@@ -59,10 +62,9 @@ The project is intended for:
 | Random | rand 0.8 |
 | Icon Loading | ico 0.3 |
 | Build Resources | winres 0.1 (Windows .ico embedding) |
-| Testing (JS) | Vitest 4 + jsdom 29 |
-| Package Manager (JS) | npm (dev dependencies only) |
+| Installer | NSIS (installer/DrPlayer.nsi) |
 | No Database | None |
-| No External APIs | None |
+| No External APIs | One optional metadata GET to the GitHub releases API |
 
 ---
 
@@ -71,10 +73,9 @@ The project is intended for:
 ```
 Dr.Player/
 ├── src/
-│   └── main.rs                  # Single Rust source file (~1474 lines)
-├── ui/
-│   └── tests/
-│       └── player.test.js       # 73 regression tests (~1249 lines)
+│   └── main.rs                  # Single Rust source file: the embedded UI and all backend code
+├── installer/
+│   └── DrPlayer.nsi             # NSIS installer; version passed in with -DAPP_VERSION
 ├── docs/
 │   └── WEBVIEW_QUIRKS.md        # Cross-platform webview quirk documentation
 ├── resources/
@@ -88,13 +89,10 @@ Dr.Player/
 ├── .githooks/
 │   └── pre-commit               # Pre-commit hook (tab check, cargo check)
 ├── .gitignore                   # Ignores target/, node_modules/, IDE, OS files
-├── Cargo.toml                   # Rust project manifest
+├── Cargo.toml                   # Rust project manifest, and the source of truth for the version
 ├── Cargo.lock                   # Rust dependency lockfile
 ├── build.rs                     # Windows resource compilation (embeds icon.ico)
-├── package.json                 # JS dev dependencies (vitest, jsdom)
-├── package-lock.json            # JS dependency lockfile
-├── vitest.config.js             # Vitest configuration (jsdom environment)
-├── RELEASE_NOTES.md             # v0.2.0 release notes
+├── RELEASE_NOTES.md             # v1.0.0 release notes
 ├── TESTING.md                   # Manual QA testing guide
 ├── LICENSE                      # Copyright notice
 └── README.md                    # This file
@@ -103,17 +101,17 @@ Dr.Player/
 ### Key File Explanations
 
 **`src/main.rs`** — The entire application in a single file. Contains:
-- A `const HTML: &str` (~1337 lines) embedding the complete HTML, CSS, and JavaScript UI
-- All Rust backend code (~137 lines) for CLI parsing, window management, HTTP server, and IPC
+- A `const HTML: &str` embedding the complete HTML, CSS, and JavaScript UI
+- All Rust backend code for CLI parsing, window management, HTTP server, the optional update check, and IPC
 - `build.rs` — On Windows, compiles `resources/icon.ico` into the binary as the application icon
-
-**`ui/tests/player.test.js`** — Regression tests that reconstruct the drawing state machine in jsdom, mocking the webview environment (canvas, rAF, IPC). Tests cover tool switching mid-draw, undo/redo, keyboard shortcut isolation, error resilience, and draw mode lifecycle.
 
 **`docs/WEBVIEW_QUIRKS.md`** — Documents known cross-platform issues with WKWebView (macOS), WebKitGTK (Linux), and WebView2 (Windows), along with their workarounds.
 
 **`TESTING.md`** — Step-by-step manual QA guide covering macOS-specific tests, draw mode operations, keyboard shortcut conflicts, cross-platform matrix, crash resilience, and regression checklist.
 
-**`RELEASE_NOTES.md`** — Documents changes in v0.2.0, focusing on macOS crash fixes, state machine improvements, error resilience, and testing infrastructure.
+**`RELEASE_NOTES.md`** — Documents changes in v1.0.0.
+
+**`installer/DrPlayer.nsi`** — NSIS installer for Windows. Installs into the current user's profile, so no administrator rights are needed. The version is not written in the script; it is passed in with `-DAPP_VERSION=x.y.z`, taken from `Cargo.toml`.
 
 ---
 
@@ -195,7 +193,8 @@ sequenceDiagram
 All application state lives in JavaScript variables within the webview:
 
 - **Video state**: `vid.paused`, `vid.currentTime`, `vid.volume`, `vid.muted`, `loopEnabled`
-- **UI state**: `hideT` (auto-hide timer), `hudLock` (lock toggle), `hudVisible`
+- **UI state**: `hideT` (auto-hide timer), `hudLock` (chrome pinned off), `hudPin` (chrome held up), `helpOpen` (shortcuts panel), `updateDismissed`
+- **Window shape state**: `fillMode`, `videoAspect`, `fillOwnResize` — fill mode's own bookkeeping, so a resize it did not ask for can be told from one it did
 - **Drawing state**: `tool`, `color`, `size`, `drawing`, `shapes[]`, `undoStack[]`, `redoStack[]`, `selShape`, `selShapeOffX/Y`
 - **Window state**: `resizing`, `resizeDir`, `startX/Y`, `startW/H`, `dragData`
 
@@ -219,11 +218,11 @@ The drawing system operates as a state machine:
 
 ### Error Handling Strategy
 
-**JavaScript side** (`src/main.rs:604-612`):
+**JavaScript side** (the inline script in `src/main.rs`):
 - `window.addEventListener('error', ...)` — catches all unhandled JS errors, logs them as `GLOBAL_ERROR`, calls `preventDefault()` to suppress propagation
 - `window.addEventListener('unhandledrejection', ...)` — catches unhandled promise rejections, logs them as `UNHANDLED_PROMISE`, calls `preventDefault()`
 
-**Rust side** (`src/main.rs:1369-1371`):
+**Rust side**:
 - `std::panic::set_hook()` — installs a custom panic hook that prints `Dr.Player internal error: {info}` to stderr instead of crashing silently
 
 **Edge case handling**:
@@ -232,19 +231,24 @@ The drawing system operates as a state machine:
 - `mouseleave` on canvas — sets `drawing = false` and clears selection to prevent extending strokes when mouse re-enters
 - Autoplay fallback — if the initial `vid.play()` promise is rejected (audio autoplay blocked), the video is muted and playback retried
 - Video error handler — `vid.onerror` sets the title to 'Error loading video'
-- Text dialog keydown handler — calls `e.stopPropagation()` to prevent draw mode keyboard shortcuts from firing while the dialog is open
+- The rate field's keydown handler — calls `e.stopPropagation()` so a keystroke aimed at the field does not fire a player shortcut instead
 
 ---
 
 ## Core Components
 
-### Rust Backend (`src/main.rs:1339-1474`)
+### Rust Backend (`src/main.rs`)
 
-| Component | Lines | Responsibility |
-|-----------|-------|----------------|
-| `Args` (clap Parser) | 1349–1353 | Parse the video file path from CLI arguments |
-| `load_icon()` | 1359–1364 | Load and decode the `.ico` file for the window icon |
-| `main()` | 1367–1474 | Application entry point — servers, windows, event loop |
+| Component | Responsibility |
+|-----------|----------------|
+| `Args` (clap Parser) | Parse the video file path from CLI arguments |
+| `load_icon()` | Load and decode the `.ico` file for the window icon |
+| `is_postable_size()` | Reject a resize whose width or height is not a finite number of at least 1 |
+| `is_embedded_copy()` / `beside_an_electron_bundle()` | Decide whether this is a standalone copy or one bundled inside PDEA |
+| `check_for_update()` | One HTTPS GET of the latest-release metadata, with a 5s ceiling and no retries |
+| `open_in_default_browser()` | Hand a URL to the shell, so the video never leaves the window |
+| `main()` | Application entry point — servers, windows, event loop |
+
 
 **`main()` flow:**
 1. Install Rust panic hook (`std::panic::set_hook`)
@@ -266,25 +270,30 @@ The drawing system operates as a state machine:
     - IPC handler forwarding messages to event loop proxy
 12. Run event loop handling:
     - `CloseRequested` → `ControlFlow::Exit`
-    - User events: close, minimize, fullscreen toggle, exit_fullscreen, drag_window, resize (with width/height clamped to 200–7680 × 200–4320)
+    - User events: close, minimize, fullscreen toggle, exit_fullscreen, drag_window, update_available, open_release_page, and `resize:{w}:{h}`, which takes any finite width and height of at least 1
 
-### Embedded JavaScript Modules (`src/main.rs:583-1336`)
+### Embedded JavaScript Modules (the inline `<script>` in `src/main.rs`)
 
 The inline `<script>` block contains all application logic organized into these functional modules:
 
 #### Video Player Module
-- **Elements**: `<video id="v">`, HUD buttons (play/pause, seek -5s/+5s, frame step -1F/+1F, volume, loop, fullscreen)
+- **Elements**: `<video id="v">`, HUD buttons (play/pause, seek -5s/+5s, frame step -1F/+1F, rate field, volume, loop, fullscreen)
 - **Key functions**: `showUI()`, `updateSeekbar()`, `seekFromEvent()`, `setVol()`, `volFromE()`
 - **Events**: `timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`, `onerror`
-- **Autoplay fallback** (`src/main.rs:594-602`): Attempts unmuted playback; if rejected, mutes and retries
+- **Autoplay fallback**: Attempts unmuted playback; if rejected, mutes and retries
+
+#### Playback Rate Module
+- **Field**: `#rate-input`, `role="spinbutton"`, `aria-valuemin="0.0625"`, `aria-valuemax="16"`, six characters wide so `0.0625` and `16.00` fit
+- **Range**: the engine's own bounds, `RATE_MIN = 0.0625` and `RATE_MAX = 16`, not a round subset of them
+- **Keys inside the field**: arrows step the rate, PageUp/PageDown step it a page, Enter commits, Escape leaves the rate in effect, Home and End are left to the caret. Every one of them stops propagating first, so typing `0.0625` does not fire a shortcut instead
 
 #### Window Management Module
-- **Drag**: `drag-handle` and `.title-capsule` mousedown → `window.ipc.postMessage('drag_window')`
-- **Resize** (`src/main.rs:692-770`): Edge detection within 8px margin, direction tracking (n/s/e/w combinations), `requestAnimationFrame`-throttled IPC resize messages. Window dimensions clamped server-side to 200–7680 × 200–4320
+- **Drag**: `drag-handle` and `.title-capsule` mousedown → `window.ipc.postMessage('drag_window')`, plus a press on `#stage` while the chrome is hidden, so a hidden window can still be moved
+- **Resize**: Edge detection within an 8px margin, direction tracking (n/s/e/w combinations), `requestAnimationFrame`-throttled IPC resize messages. No upper or lower clamp beyond the window system's own
 - **Buttons**: minimize (`'minimize'`), close (`'close'`), fullscreen (`'fullscreen'`) via IPC
-- **Blur handler** (`src/main.rs:772-780`): Resets `resizing`, `seeking`, `vDrag`, `dragData`, `drawing`, `selShape` on window blur
+- **Blur handler**: Resets `resizing`, `seeking`, `vDrag`, `dragData`, `drawing`, `selShape` on window blur
 
-#### Drawing State Machine Module (`src/main.rs:928-1325`)
+#### Drawing State Machine Module
 - **State variables**: `tool`, `color`, `size`, `drawing`, `shapes[]`, `undoStack[]`, `redoStack[]`, `selShape`, `selShapeOffX/Y`
 - **Functions**:
   - `drawShape(ctx, s)` — renders a single shape object (pen, line, arrow, rect, circle, text)
@@ -302,23 +311,24 @@ The inline `<script>` block contains all application logic organized into these 
 - **Canvas events**: `mousedown`, `mousemove`, `mouseup`, `mouseleave`, `wheel`
 - **Mouse button handlers**: Button 3 (back) → undo, Button 4 (forward) → redo; blocked during active drawing
 
-#### Text Dialog Module (`src/main.rs:615-643`)
-- Replaces `window.prompt()` with a custom HTML modal dialog
+#### Text Dialog Module
+- Present in the source and wired to a `tool === 'text'` branch, but not reachable: there is no text tool button in the toolbar and no key that selects it
 - **Elements**: `#text-dialog` (overlay), `#text-dialog-input` (text input), OK/Cancel buttons
 - **Promise-based**: `showTextDialog()` returns a Promise that resolves to the entered text or `null`
 - **Events**: OK/Cancel buttons, Enter key confirms, Escape key cancels, `stopPropagation()` prevents draw mode interference
 
-#### Keyboard Shortcut Module (`src/main.rs:908-1325`)
-- **Global handler** (`src/main.rs:908-925`): Listens for `keydown`; bails out early if `drawbar.classList.contains('open')`. Handles Space, Arrow keys, Period/Comma (frame step), F/F11 (fullscreen), Escape (exit fullscreen), M (mute), L (loop toggle)
-- **Draw handler** (`src/main.rs:1297-1325`): Second `keydown` listener that only fires when drawbar is open. Handles P/L/A/R/C/H (tool switch), E (exit draw mode), Delete/Backspace (delete selected shape), Ctrl/Cmd+Backspace (clear all), 0-9 (stroke size)
-- **Shortcut isolation**: Draw mode shortcuts are completely separate from global shortcuts. When drawbar is open, the global handler returns early before processing any key. When drawbar is closed, the draw handler returns early.
+#### Keyboard Shortcut Module
+- **Shortcuts panel**: `/` or the help button opens it, the same key or a click outside closes it, and Tab moves through it
+- **Player handler**: Listens for `keydown`; bails out early if the shortcuts panel is open or the draw bar is. Handles H (hide/show controls), C (fill mode), `[` and `]` (rate), Space, Arrow keys, Period/Comma (frame step), F/F11 (fullscreen), Escape (leave fullscreen), M (mute), L (loop toggle). Switches on `e.code`, so it is layout-independent, and tests no modifier: WebView2 holds back a fixed set of its own chords and never delivers those to the page
+- **Draw handler**: Second `keydown` listener that only fires when the draw bar is open. Handles P/L/A/R/C/H (tool switch), Escape (leave draw mode), Delete (delete the picked-up shape), Backspace (clear all, still undoable), 0-9 (stroke size, the even sizes 2 to 20)
+- **Shortcut isolation**: Draw mode shortcuts are completely separate from global shortcuts. When the draw bar is open, the player handler returns early before processing any key. When the draw bar is closed, the draw handler returns early.
 
-#### UI Auto-Hide Module (`src/main.rs:652-679`)
+#### UI Auto-Hide Module
 - `showUI()` — shows topbar and HUD, resets the 3-second auto-hide timer
-- `mousemove` and `keydown` events trigger `showUI()`
-- `hudLock` (◎ button) — toggles permanent visibility, overriding the auto-hide
+- `mousemove` and `keydown` events trigger `showUI()`; the timer re-checks that focus is not inside the chrome before it fires, so nothing invisible can be tabbed into
+- `hudLock` (the eye button in the top bar) — pins the chrome off, so the auto-hide timer stops bringing it back; `hudPin` holds it up after `H` brings it back, until the mouse moves
 
-### Embedded HTTP Server (`src/main.rs:1389-1396`)
+### Embedded HTTP Server (`src/main.rs`)
 
 - **Framework**: axum 0.7 with tower-http 0.5 (`ServeFile`)
 - **Route**: `/{token}` nests `ServeFile::new(&path)`
@@ -340,7 +350,8 @@ The application uses a single IPC channel via `window.ipc.postMessage()`.
 | `'fullscreen'` | Toggle fullscreen | `window.set_fullscreen(Some(Fullscreen::Borderless(None)))` if not already fullscreen, else `window.set_fullscreen(None)` |
 | `'exit_fullscreen'` | Exit fullscreen | `window.set_fullscreen(None)` |
 | `'drag_window'` | Start window drag | `window.drag_window()` |
-| `'resize:{w}:{h}'` | Resize window to given dimensions | Parses width and height, clamps to 200–7680 × 200–4320, calls `window.set_inner_size(LogicalSize::new(w, h))` |
+| `'resize:{w}:{h}'` | Resize window to given dimensions | Parses width and height, keeps any finite pair of at least 1, calls `window.set_inner_size(LogicalSize::new(w, h))` |
+| `'open_release_page'` | Open the releases page in the default browser | `ShellExecuteW` on the releases URL |
 
 **Response format**: No return value (fire-and-forget). Messages are forwarded from `with_ipc_handler` to the tao event loop via `proxy.send_event()`.
 
@@ -352,11 +363,21 @@ The application uses a single IPC channel via `window.ipc.postMessage()`.
 |--------|-------|---------|----------|
 | GET | `/{random_token}` | Serve the video file | Raw video file bytes with content type determined by `ServeFile` |
 
+### Outbound HTTP
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `https://api.github.com/repos/Babar-Meet/Dr.Player/releases/latest` | Optional update check, one request per launch under a 5s ceiling, no retries. Skipped entirely when `DRPLAYER_EMBEDDED` is set or the executable sits beside an `app.asar`, i.e. when it is the copy bundled inside PDEA |
+
 ---
 
 ## Environment Variables
 
-The application does not use any environment variables. All configuration is compile-time or CLI-based.
+| Variable | Effect |
+|----------|--------|
+| `DRPLAYER_EMBEDDED` | Forces the update check off when set to anything other than `0`, `no`, `false` or `off`, and on when set to one of those. Unset or empty leaves the answer to the probe for a sibling `app.asar` |
+
+Everything else is compile-time or CLI-based.
 
 ---
 
@@ -369,17 +390,12 @@ Not applicable. The application has no database, no persistent storage, and no e
 ## Configuration
 
 ### `Cargo.toml`
-- **Package**: `dr-player` v0.1.0, Rust 2021 edition
-- **Dependencies**: clap 4 (derive), tokio 1 (rt-multi-thread, macros, net), axum 0.7, tower-http 0.5 (fs), wry 0.39 (fullscreen), tao 0.28, ico 0.3, serde_json 1, rand 0.8
+- **Package**: `dr-player`, Rust 2021 edition. The `version` field here is the single source of truth for the project version; nothing else in the repository carries a copy of it
+- **Dependencies**: clap 4 (derive), tokio 1 (rt-multi-thread, macros, net), axum 0.7, tower-http 0.5 (fs), wry 0.39 (fullscreen), tao 0.28, ico 0.3, serde_json 1, rand 0.8, reqwest 0.12 (rustls-tls, default features off)
 - **Build deps**: winres 0.1 (Windows only)
 
-### `package.json`
-- Dev dependencies: `jsdom ^29.1.1`, `vitest ^4.1.9`
-- No runtime dependencies
-
-### `vitest.config.js`
-- Environment: `jsdom`
-- Test pattern: `ui/tests/**/*.test.js`
+### `installer/DrPlayer.nsi`
+- `APP_VERSION` is not defined in the script. It is passed in with `-DAPP_VERSION=x.y.z`, read from `Cargo.toml`, and the default is a visibly wrong sentinel (`0.0.0-UNSET`) so a bare `makensis` cannot produce a plausible version by accident
 
 ### `build.rs`
 - On Windows (`CARGO_CFG_TARGET_OS == "windows"`): compiles `resources/icon.ico` as the application icon via `winres::WindowsResource`
@@ -387,8 +403,10 @@ Not applicable. The application has no database, no persistent storage, and no e
 ### `src/main.rs` (runtime constants)
 - `RESIZE_MARGIN = 8` — pixel margin for edge detection during window resize
 - `MAX_HISTORY = 50` — maximum undo/redo stack depth
+- `RATE_MIN = 0.0625`, `RATE_MAX = 16` — the engine's own playback-rate bounds
+- `UPDATE_TIMEOUT` — 5s ceiling on the one update-check request
 - Content Security Policy embedded in HTML `<meta>` tag: restricts `default-src`, `media-src`, `connect-src` to `http://127.0.0.1:*` and `script-src` to `'unsafe-inline'`
-- Window size: default 1280×720 logical pixels (clamped 200–7680 × 200–4320)
+- Window size: default 1280×720 logical pixels, no clamp on resize beyond rejecting a non-finite or sub-1-pixel pair
 
 ### `.gitignore`
 - Ignores: `target/`, `dist-installer/`, `*.log`, `.vscode/`, `.idea/`, `*.swp`, `*.swo`, `node_modules/`, `.DS_Store`, `Thumbs.db`
@@ -422,13 +440,7 @@ Not applicable. The application has no database, no persistent storage, and no e
 | `ico` | 0.3 | ICO file parsing for window icon |
 | `serde_json` | 1 | JSON serialization (escapes URLs/titles for JS) |
 | `rand` | 0.8 | Random token generation for video URL |
-
-### JavaScript (npm dev)
-
-| Dependency | Version | Purpose |
-|-----------|---------|---------|
-| `vitest` | ^4.1.9 | Test runner for regression tests |
-| `jsdom` | ^29.1.1 | DOM environment for testing without a browser |
+| `reqwest` | 0.12 | HTTPS client for the optional update check. Default features off, rustls-tls on, so a Windows binary needs no OpenSSL |
 
 ### Internal Dependencies
 
@@ -463,11 +475,18 @@ cargo build --release
 # The binary is at ./target/release/dr-player (or dr-player.exe on Windows)
 ```
 
-### Test Dependencies (optional)
+### Windows installer
 
 ```bash
-npm install
+# makensis does not create the OutFile directory, so make it first
+mkdir dist-installer
+
+# Pass the version in; read it from Cargo.toml rather than typing it twice.
+# Quote it: PowerShell splits an unquoted -DAPP_VERSION=1.0.0 at the dots.
+makensis "-DAPP_VERSION=1.0.0" installer\DrPlayer.nsi
 ```
+
+The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\release\dr-player.exe`, so build the binary first.
 
 ---
 
@@ -497,13 +516,7 @@ cargo build --release
 
 ### Test
 
-```bash
-# Run JavaScript regression tests
-npx vitest run
-
-# Or via npm
-npm test
-```
+There is no automated test suite in this repository. `TESTING.md` is a manual QA checklist and `TESTING_videos/` holds sample files to run it against.
 
 ### Lint
 
@@ -534,33 +547,33 @@ cargo fmt
 4. An axum HTTP server starts on `127.0.0.1:<random-port>`, serving the video file at `/{token}` via `tower_http::services::ServeFile`
 5. A frameless tao window (1280×720 logical size) is created with the application icon loaded from `resources/icon.ico`
 6. The wry webview loads the embedded HTML — a complete video player UI with:
-   - Video element (`<video id="v">`), top bar (title capsule, hide button, draw button, minimize/close buttons)
-   - Bottom HUD (playback controls: -5s, +5s, -1F, +1F, play/pause, seekbar, time display, volume, loop, fullscreen)
-   - Drawing canvas overlay with annotation toolbar (7 tools, color swatches, size slider, undo/redo/clear, seek/step, exit)
-   - Custom text input dialog (replaces `window.prompt()`)
+   - Video element (`<video id="v">`), top bar (title capsule, help, hide, fill, draw, minimize, close buttons) and the optional update chip
+   - Bottom chrome, one slim flat row: play/pause, the two time readouts around a full-width timeline strip, -5s, +5s, -1F, +1F, the playback rate field, volume, loop, fullscreen
+   - Drawing canvas overlay with annotation toolbar (6 tools, color swatches, size slider, undo/redo/clear, seek/step, exit)
 7. The initialization script calls `window.loadVideo(url)` and `window.setTitle(name)` after `DOMContentLoaded`
 8. The video starts playing with autoplay enabled. If the browser blocks audio autoplay, the video is muted and playback retried
+9. One background HTTPS GET asks GitHub for the latest release metadata. If the version is newer, an update chip appears in the top bar and its button opens the releases page in the default browser. A copy bundled inside PDEA skips the request entirely
 
 ### User Interaction Walkthrough
 
-**Normal playback**: The user sees the video with a translucent top bar (title + window controls) and bottom HUD (play, seek, volume, loop, fullscreen). The UI auto-hides after 3 seconds of inactivity. The user can:
-- Click buttons or use keyboard shortcuts (Space, arrows, Period/Comma, F/F11, M, L)
-- Drag the window by the title bar (drag-handle or title-capsule)
+**Normal playback**: The user sees the video with a bare top bar (title capsule and window controls, with no background of its own) and an opaque bottom row. The chrome auto-hides after 3 seconds of inactivity. The user can:
+- Click buttons or use keyboard shortcuts (Space, arrows, `,`/`.`, F/F11, M, L, C, H, `[`/`]`, `/`, Escape)
+- Open the shortcuts panel on `/` or the help button, and close it with the same key or a click outside
+- Drag the window by the title bar (drag-handle or title-capsule), or by a press on the stage when the chrome is hidden
 - Resize from any edge (8px detection margin) with rAF-throttled IPC resize messages
-- Lock the UI visible with the ◎ button (toggles `hudLock`)
+- Press `C` to reshape the window to the video's own shape (fill mode), or press `H` to hide the chrome; the eye button in the top bar pins the chrome off
 
-**Drawing annotations**: The user presses D (or clicks ✎) to enter draw mode. The toolbar appears at the bottom-center, the video pauses, and the normal HUD/topbar hide. Available tools:
+**Drawing annotations**: The user clicks ✎ in the top bar to enter draw mode. The toolbar appears, the video pauses, and the normal chrome hides. Available tools:
 - **Pen (P)**: Click and drag for freehand drawing (points are accumulated as an array)
 - **Line (L)**: Click and drag for straight lines
 - **Arrow (A)**: Click and drag for lines with arrowheads (arrowhead size scales with stroke size, clamped 8–16px)
 - **Rectangle (R)**: Click and drag diagonally
 - **Circle (C)**: Click and drag from center outward (radius is Euclidean distance)
-- **Text (T)**: Click to open a custom dialog, type text, confirm with OK/Enter (font size = max(12, size * 5))
-- **Hand (H)**: Click to select a shape via hitTest, drag to move it; scroll wheel changes size/font
+- **Hand (H)**: Click to select a shape via hitTest, drag to move it; scroll wheel changes size
 
-The user can switch tools mid-draw — incomplete shapes (zero-length lines, single-point pen strokes) are automatically discarded. Undo (mouse button 3 or ↩ button) and redo (mouse button 4 or ↪ button) have a 50-step history. All keyboard shortcuts (P/L/A/R/C/H/E/0-9/Delete) are isolated within draw mode — global shortcuts like Space, arrows, and L (loop) are blocked while the drawbar is open. Pressing E or clicking ✕ Exit returns to playback.
+The user can switch tools mid-draw — incomplete shapes (zero-length lines, single-point pen strokes) are automatically discarded. Undo (mouse button 3 or ↩ button) and redo (mouse button 4 or ↪ button) have a 50-step history. All keyboard shortcuts (P/L/A/R/C/H/0-9/Delete/Backspace/Escape) are isolated within draw mode — player shortcuts like Space, arrows, and L (loop) are blocked while the draw bar is open. The number keys `0`-`9` set the stroke size to the even sizes 2 to 20, which is what the `0`-`9` end of the 1-20 slider reaches; the slider itself reaches the odd sizes. Pressing Escape or clicking ✕ Exit returns to playback.
 
-**Fullscreen**: Press F, F11, or click the FS button. Escape exits fullscreen (but does not exit draw mode; use E for that).
+**Fullscreen**: Press F, F11, or click the FS button. Escape leaves fullscreen.
 
 ---
 
@@ -587,13 +600,13 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**Development** — v0.1.0 (with documented v0.2.0 release notes)
+**Released** — v1.0.0. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed.
 
 Evidence:
-- Version `0.1.0` in `Cargo.toml` with detailed release notes for `v0.2.0`
-- 73 regression tests with planned manual QA matrix
-- Known platform-specific bugs documented in `docs/WEBVIEW_QUIRKS.md`
-- Active macOS crash fixes in recent release (v0.2.0 release notes document 10+ macOS-specific fixes)
+- `version = "1.0.0"` in `Cargo.toml`, which is what the installer is told to stamp
+- An NSIS installer that takes the version on the command line, so it cannot drift from the crate
+- Manual QA guide in `TESTING.md` and sample videos in `TESTING_videos/`
+- Known platform-specific issues documented in `docs/WEBVIEW_QUIRKS.md`
 - Pre-commit hook enforcing code quality
 - Detailed pull request template with security checklist
 
@@ -608,8 +621,8 @@ Evidence:
 - **No video format transcoding**: Relies entirely on the webview's native `<video>` element codec support
 - **Single-threaded drawing**: Canvas operations run on the UI thread; complex drawings may lag
 - **No shape editing**: Once committed, shapes cannot be edited (only deleted or moved)
-- **Text tool has no keyboard shortcut**: Must click the toolbar button (no dedicated key)
-- **Escape in draw mode does nothing**: Users must press E or click ✕ Exit (by design — prevents accidental fullscreen exit)
+- **No text annotation in the shipped build**: the toolbar has no text tool and no key reaches the text branch, so text shapes cannot be created from the UI
+- **No automated tests**: the previous Vitest suite was deleted; coverage is manual, via `TESTING.md`
 - **macOS WKWebView-specific crashes**: Mitigated but the underlying platform quirks remain (documented in `WEBVIEW_QUIRKS.md`)
 - **Linux requires `libwebkit2gtk-4.1-dev`**: Not 4.0, which may cause confusion
 - **Windows requires WebView2 runtime**: Not installed by default on all Windows versions
