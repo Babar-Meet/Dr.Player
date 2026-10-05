@@ -22,7 +22,7 @@ The project is intended for:
 
 ## Features
 
-- **Windows file associations** — the installer registers Dr.Player for `.mp4`, `.m4v`, `.mov` and `.webm`, so it appears in Explorer's Open with menu, in the Open with dialog, and in Settings > Default apps. Windows reserves the choice itself, so the installer takes nothing away from a program you already use
+- **Windows file associations** — the installer registers Dr.Player for `.mp4`, `.m4v`, `.mov` and `.webm`, so it appears in Explorer's Open with menu, in the Open with dialog, and in Settings > Default apps. Windows reserves the choice itself, in `Explorer\FileExts\<ext>\UserChoice`, which the installer writes nothing near, so it takes nothing away from a program you already use
 - **Video playback** with play/pause, seek, frame stepping, volume control
 - **6 drawing tools**: Pen (freehand), Line, Arrow, Rectangle, Circle, Hand (select/move)
 - **Undo/redo** (50-level history) via toolbar buttons or mouse buttons 3/4
@@ -94,7 +94,7 @@ Dr.Player/
 ├── Cargo.toml                   # Rust project manifest, and the source of truth for the version
 ├── Cargo.lock                   # Rust dependency lockfile
 ├── build.rs                     # Windows resource compilation (embeds icon.ico)
-├── RELEASE_NOTES.md             # v2.1.0, v2.0.0 and v1.0.0 release notes
+├── RELEASE_NOTES.md             # v2.1.1, v2.1.0, v2.0.0 and v1.0.0 release notes
 ├── TESTING.md                   # Manual QA testing guide
 ├── LICENSE                      # Copyright notice
 └── README.md                    # This file
@@ -111,7 +111,7 @@ Dr.Player/
 
 **`TESTING.md`** — Step-by-step manual QA guide covering macOS-specific tests, draw mode operations, keyboard shortcut conflicts, cross-platform matrix, crash resilience, and regression checklist.
 
-**`RELEASE_NOTES.md`** — Documents changes in v2.1.0, v2.0.0 and v1.0.0.
+**`RELEASE_NOTES.md`** — Documents changes in v2.1.1, v2.1.0, v2.0.0 and v1.0.0.
 
 **`installer/DrPlayer.nsi`** — NSIS installer for Windows. Installs into the current user's profile, so no administrator rights are needed. The version is not written in the script; it is passed in with `-DAPP_VERSION=x.y.z`, taken from `Cargo.toml`. The installer also registers the Windows file associations described under Installation, and it writes no file associations outside the user's own profile.
 
@@ -232,7 +232,7 @@ The drawing system operates as a state machine:
 - `window.blur` event — resets all drag/resize/seek/draw state to prevent dangling state when window loses focus
 - `mouseleave` on canvas — sets `drawing = false` and clears selection to prevent extending strokes when mouse re-enters
 - Autoplay fallback — if the initial `vid.play()` promise is rejected (audio autoplay blocked), the video is muted and playback retried
-- Video error handler — `vid.onerror` sets the title to 'Error loading video'
+- Video error handler — `vid.onerror` writes `Error loading video` into the in-page title element, not the OS window title, which is fixed at `Dr.Player` and never changes
 - The rate field's keydown handler — calls `e.stopPropagation()` so a keystroke aimed at the field does not fire a player shortcut instead
 
 ---
@@ -401,6 +401,8 @@ Not applicable. The application has no database, no persistent storage, and no e
 - One optional section registers the Windows file associations described under Installation. NSIS selects it by default because the `/o` switch is omitted from its `Section` declaration, and the user can untick it on the components page
 - The shell is told about the change with `SHChangeNotify(SHCNE_ASSOCCHANGED)` on the way in and on the way out, via `${NotifyShell_AssocChanged}` from `Integration.nsh`. Without it the change can go unnoticed until after a reboot
 - The finish page's Run checkbox opens Windows' own Default Apps page rather than starting the app, which cannot be started bare. It is unchecked by default (`MUI_FINISHPAGE_RUN_NOTCHECKED`), and `MUI_FINISHPAGE_RUN` is defined without a value so that `MUI_FINISHPAGE_RUN_FUNCTION` runs an `ExecShell` instead of an `Exec`, since a URI is neither an exe nor something `Exec` can resolve
+- A `.onVerifyInstDir` callback refuses an install directory that is not a local fixed drive, which is what keeps a typed `\\Server\Share\Dr.Player` out of the handler for four file types. It reads two characters of the path and nothing else: a colon followed by a separator
+- The uninstaller deletes `$INSTDIR\dr-player.exe.WebView2` recursively before removing `$INSTDIR`, because that profile is created at runtime by the embedded browser and `RMDir` will not remove a directory that still has anything in it
 
 ### `build.rs`
 - On Windows (`CARGO_CFG_TARGET_OS == "windows"`): compiles `resources/icon.ico` as the application icon via `winres::WindowsResource`
@@ -487,15 +489,15 @@ cargo build --release
 mkdir dist-installer
 
 # Pass the version in; read it from Cargo.toml rather than typing it twice.
-# Quote it: PowerShell splits an unquoted -DAPP_VERSION=2.1.0 at the dots.
-makensis "-DAPP_VERSION=2.1.0" installer\DrPlayer.nsi
+# Quote it: PowerShell splits an unquoted -DAPP_VERSION=2.1.1 at the dots.
+makensis "-DAPP_VERSION=2.1.1" installer\DrPlayer.nsi
 ```
 
 The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\release\dr-player.exe`, so build the binary first.
 
 ### What the installer registers on Windows
 
-The app takes one required argument, the video to play, and exits with code 2 when started with none. Before v2.1.0 that made it unreachable by double-click, and the installer shipped a text file explaining how to start it by hand. v2.1.0 removes that file and registers real Windows file associations instead, so the normal way of opening a video reaches the app.
+The app takes one required argument, the video to play, and exits with code 2 when started with none. Before v2.1.0 that made it unreachable by double-click, and the installer shipped a text file explaining how to start it by hand. v2.1.0 stopped shipping that file and registered real Windows file associations instead, so the normal way of opening a video reaches the app, and v2.1.1 also deletes the old text file and its two shortcuts on every install, so a machine upgraded from v2.0.0 stops carrying the Win+R instruction on its own Start Menu.
 
 The components page carries one optional section, checked by default, labelled for what it does: **Dr.Player in Open with for MP4, MOV and WebM**. Untick it and the app installs with no registration at all, which is the whole of its behaviour change; nothing else on that page is optional. The four types it registers are `.mp4`, `.m4v`, `.mov` and `.webm`.
 
@@ -504,25 +506,34 @@ What it writes, all under `HKCU\Software\Classes`, so per user and with no admin
 | Key | Values |
 |------|--------|
 | `Dr.Player.Video` | `FriendlyTypeName` = `Dr.Player Video`, `AllowSilentDefaultTakeOver` present with no data, `DefaultIcon` = the installed exe at icon 0, and `shell\open\command` = `"<installdir>\dr-player.exe" "%1"` |
-| `.mp4`, `.m4v`, `.mov`, `.webm` | `OpenWithProgids` carrying a `Dr.Player.Video` value, which is the list that puts Dr.Player in the Open with menu and dialog |
-| `.mp4`, `.m4v`, `.mov`, `.webm` | `(Default)` = `Dr.Player.Video`, plus `Content Type` and `PerceivedType` |
+| `.mp4`, `.m4v`, `.mov`, `.webm` | `OpenWithProgids` carrying a `Dr.Player.Video` value, which is the list that puts Dr.Player in the Open with menu and dialog, and the only thing the extension keys are written for |
 | `Applications\dr-player.exe` | `FriendlyAppName`, `ApplicationCompany`, `shell\open\command`, and `SupportedTypes` naming the four extensions, without which Windows would offer the exe for every extension on the machine |
 | `Applications\dr-player.exe\Capabilities` | `ApplicationDescription` and `FileAssociations` mapping each extension to `Dr.Player.Video` |
 | `HKCU\Software\RegisteredApplications` | a `Dr.Player` value pointing at that Capabilities key, which is what puts the app in Settings > Default apps |
 
 The ProgID carries no version, on purpose: a later release re-registers the same name, so a user who has already chosen Dr.Player keeps a working handler instead of the shell seeing one disappear and another appear.
 
-**Being a candidate is not being the default, and Windows never lets an installer decide that.** Windows has no supported mechanism for taking a file type away from the program a user already chose: the setting lives in `Explorer\FileExts\<ext>\UserChoice`, which is obfuscated, hash-protected and actively blocked from writes by a kernel filter driver. So the installer's job ends at offering, and three things are deliberately never written:
+**Being a candidate is not being the default, and Windows never lets an installer decide that.** Windows has no supported mechanism for taking a file type away from the program a user already chose: the setting lives in `Explorer\FileExts\<ext>\UserChoice`, which is obfuscated, hash-protected and actively blocked from writes by a kernel filter driver. So the installer's job ends at offering, and four things are deliberately never written:
 
 - anything under `Explorer\FileExts\<ext>\UserChoice`, `Hash` included
 - anything under `HKLM`, both because the installer is unelevated and because per-user is the right scope
 - `OpenWithList`, which Microsoft's own table marks "Do not use" in favour of `OpenWithProgids`
+- the extension's own `(Default)` value, plus `Content Type` and `PerceivedType`
+
+That last one was in v2.1.0 and is out from v2.1.1, and the reason is worth stating because the value looks harmless. Windows consults the extension `(Default)` only when no valid `UserChoice` exists for the type, so on any machine where the user has ever chosen a handler the write did nothing at all. On the machines where it would apply, it overwrote whatever program's fallback was already there and kept no copy of it: this machine's `.mp4` reads `VLC.mp4`, and v2.1.0 put `Dr.Player.Video` over it with nothing stored to put it back, then left that value behind on uninstall naming a ProgID that was gone. Overwriting another program's fallback with no copy is a worse outcome than not writing it, so it is not written, and nothing replaces it. `OpenWithProgids`, which is what actually puts Dr.Player in the Open with list, is untouched.
 
 `AllowSilentDefaultTakeOver` is the politeness value for the same reason, and its documented behaviour is the whole point of the shape: Windows ignores the ProgID when deciding a default handler, and the ProgID keeps appearing in Open with either way.
 
-To make Dr.Player the program that opens these types, the user does it once, in Windows' own UI, and the finish page offers to open it: tick **Open Default Apps, where I can make Dr.Player the default video player**, which opens `ms-settings:defaultapps?registeredAppUser=Dr%2EPlayer`. Windows 11 and later land on Dr.Player's own page; Windows 10 ignores the query string and opens the Default Apps page itself. The other route is right-clicking any video, **Open with > Choose another app**, picking `dr-player.exe`, and then Always. Neither one is the installer's decision to make.
+The installer also refuses an install directory that is not a local fixed drive, which covers a path on a network share. `AllowRootDirInstall` was already refusing `\\Server\Share` itself but not a subdirectory of it, and a typed `\\Server\Share\Dr.Player` would have put a binary this user does not control into the handler for four file types. A `.onVerifyInstDir` callback now refuses it and leaves the user on the directory page with their own text still in the box.
 
-Uninstalling removes exactly what was added: the ProgID key and the application key, whole and recursively, so nothing is left pointing at a deleted exe; the `Dr.Player.Video` value from each of the four `OpenWithProgids` lists, in both `Software\Classes\<ext>` and the shell's own copy under `Explorer\FileExts\<ext>`; and the `Dr.Player` values under `RegisteredApplications` and `ApplicationAssociationToasts`. Three keys are left alone on purpose: the `Software\Classes\<ext>` key and its `(Default)` value, because Microsoft's uninstall guidance says an app which took ownership of a type should leave that value in place rather than risk handing the type to the wrong owner; and `MuiCache`, `AppCompatFlags\...\Store` and `Search\JumplistData`, which are shared shell caches where the only safe operation is deleting our own value, and where the residue is cosmetic.
+To make Dr.Player the program that opens these types, the user does it once, in Windows' own UI, and the finish page offers to open it: tick **Open Default Apps, where I can make Dr.Player the default video player**, which opens `ms-settings:defaultapps?registeredAppUser=Dr%2EPlayer`. Windows 11 and later land on Dr.Player's own page; Windows 10 ignores the query string and opens the Default Apps page itself. The other route is right-clicking any video, **Open with > Choose another app**, picking `dr-player.exe`, and then Always. Neither one is the installer's decision to make, and the finish page says so conditionally: the components section that creates the registration is one you can untick, so the text reads "If you left the file associations selected, ..." rather than asserting an association that may not be there.
+
+Uninstalling removes what it added: the ProgID key and the application key, whole and recursively, so nothing is left pointing at a deleted exe; the `Dr.Player.Video` value from each of the four `OpenWithProgids` lists, in both `Software\Classes\<ext>` and the shell's own copy under `Explorer\FileExts\<ext>`; the `Dr.Player` value under `RegisteredApplications`; the association-toast values, under the `<object>_.<ext>` names that key actually uses, for both the `Dr.Player.Video` ProgID and `Applications\dr-player.exe`; and the `dr-player.exe.WebView2` directory, recursively, which the embedded browser creates beside the exe on first run and which is why the install directory used to survive the uninstall. Four things are left alone on purpose:
+
+- the `Software\Classes\<ext>` key and whatever `(Default)` value is on it, since nothing this installer writes is on that key any more
+- `MuiCache`, `AppCompatFlags\...\Store` and `Search\JumplistData`, which are shared shell caches holding an entry for every program that has run here
+- `Explorer\FileExts\<ext>\OpenWithList`, which does put Dr.Player back in the Open with list on a machine that had already used it. Its value names are single positional letters indexed by the `MRUList` value beside them, and that one list also holds VLC, mpv, AfterFX, Premiere, Brave and Photos, so removing our letter without rewriting `MRUList` would shift everybody else's entry. A user who wants it gone clears it from Explorer's own Open with list, which is the only place that is safe
+- `Explorer\FileExts\<ext>\UserChoiceLatest\ProgId`, which the shell owns and which usually clears itself
 
 ---
 
@@ -636,10 +647,10 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**Released** — v2.1.0. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed.
+**Released** — v2.1.1. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed. v2.1.1 is a correction release over v2.1.0: no code changed, and the same release binary is shipped.
 
 Evidence:
-- `version = "2.1.0"` in `Cargo.toml`, which is what the installer is told to stamp
+- `version = "2.1.1"` in `Cargo.toml`, which is what the installer is told to stamp
 - An NSIS installer that takes the version on the command line, so it cannot drift from the crate
 - Windows file associations registered per user for `.mp4`, `.m4v`, `.mov` and `.webm`, from the installer's optional components section, with no write anywhere near `UserChoice`
 - Manual QA guide in `TESTING.md` and sample videos in `TESTING_videos/`
@@ -652,7 +663,7 @@ Evidence:
 ## Known Limitations
 
 - **Single video file**: No playlist or folder support — the player accepts only one file path
-- **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, the window title changes to "Error loading video", and the user is left with a frameless window to close from Task Manager. Registering a type is a claim the app has to be able to keep, which is why `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent
+- **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, the stage inside the window says "Error loading video", and the close button in the top bar closes it. The window's OS title stays `Dr.Player` throughout, since it is set once at `src/main.rs:3120` and never changed, so "Error loading video" is the in-page heading and not the title bar. Registering a type is a claim the app has to be able to keep, which is why `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent
 - **HEVC inside MP4 is conditional**: Windows needs the HEVC Video Extension installed and a working decoder path. WebView2's Chromium build is not documented by Microsoft as carrying `proprietary_codecs`, so H.264 in MP4 is assumed and untested here; HEVC is the one place that assumption has a documented failure mode (`0xC00DB3B3`, "Failed to create HEVC decoder instance")
 - **No audio device selection**: Uses system default audio output
 - **No subtitle support**: SRT, VTT, or embedded subtitles not rendered

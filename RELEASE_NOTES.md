@@ -1,12 +1,66 @@
+Dr.Player v2.1.1
+
+This is a correction release, not a feature release. No code changed: the binary is the same
+v2.1.0 build, and none of what follows is a new capability. What changed is the installer around
+it, and four of the five fixes exist because v2.1.0 shipped a claim it did not keep.
+
+Why a fresh install was needed rather than an upgrade: v2.1.0's installer wrote the per-extension
+fallback default for all four types, so installing it on a machine that already had a video player
+replaced that program's fallback with Dr.Player.Video and kept no copy of what was there. On a
+machine where VLC is installed, .mp4, .m4v, .mov and .webm all read VLC.mp4, VLC.m4v, VLC.mov and
+VLC.webm, and v2.1.0 put Dr.Player.Video over all four. The uninstaller then deliberately left
+that value naming a ProgID it had just deleted, and nothing shipped to put VLC back, so
+install-then-uninstall left four file types with a fallback pointing at nothing and no error at
+either end. A machine that has already run v2.1.0 has those four values overwritten and this
+release does not put them back, because doing it safely means reading each extension's current
+value and restoring it only while it is still ours, which is a guarded restore and is not in this
+release. The four VLC values are still on this machine today, untouched, and the values VLC keeps
+beside them read WMP11.AssocFile.MP4 and WMP11.AssocFile.MOV.
+
+- The per-extension (Default) is no longer written at all, and neither are Content Type or
+  PerceivedType beside it. Windows consults that value only when no valid UserChoice exists for
+  the type, so on any machine where the user has ever chosen a handler it did nothing at all; on
+  the machines where it would apply, a fresh profile or a new image, it overwrote another
+  program's fallback with no copy kept. OpenWithProgids, which is what actually puts Dr.Player in
+  the Open with list, is unchanged and is the whole of what the section writes now
+- Uninstalling removes the WebView2 profile directory, recursively, so it can finish. That
+  directory is created by the embedded browser beside the exe on first run, 193 files and about
+  8.5 MB on this machine, and no version of the installer had ever deleted it. RMDir only removes
+  an empty directory, so uninstall used to delete the exe, delete the uninstaller, delete the
+  Add/Remove Programs entry, and leave the install directory standing with that profile in it and
+  no way back
+- The uninstaller now deletes the shell's association-toast values under the names that key
+  actually uses, `<object>_.<ext>`, for both objects a Dr.Player registration produces: the
+  Dr.Player.Video ProgID and Applications\dr-player.exe. It was deleting a value named
+  Dr.Player, and that key has never held one, so the line had never removed anything
+- An install directory on a network share is now refused. AllowRootDirInstall was already refusing
+  the share itself, \\Server\Share, but not a subdirectory of it, and a typed
+  \\Server\Share\Dr.Player would have put a binary this user does not control into the handler
+  for four file types. The refusal is a .onVerifyInstDir callback, which also rejects a
+  drive-relative path such as C:Programs
+- Installing now deletes v2.0.0's How to open a video.txt and the two shortcuts that pointed at
+  it. They were deleted by the uninstaller only, so a machine upgraded from v2.0.0 still had all
+  three on disk and still had the Win+R instruction on its own Start Menu after installing v2.1.0
+- The finish page no longer says the association exists. It says that if you left the file
+  associations selected, Dr.Player now appears in Open with, because the section that creates it
+  is one you can untick
+- Two comments that were wrong have been corrected rather than removed. The uninstaller no longer
+  claims the shell residue "does not put Dr.Player back in the Open with list": on a machine that
+  had already used Dr.Player it does, .mp4 holds i = dr-player.exe, .mov holds c and .webm holds d
+  in Explorer\FileExts\<ext>\OpenWithList, and those are positional letters bound to a shared
+  most-recently-used list that also holds VLC, mpv, AfterFX, Premiere, Brave and Photos. Removing
+  one shifts the rest, so they are left, and a user who wants it gone clears it from Explorer's
+  own Open with list
+
 Dr.Player v2.1.0
 
 File Associations
 - Dr.Player now appears in the Open with list for .mp4, .m4v, .mov and .webm, so a video opens
   the way a video opens: double-click it, or pick Dr.Player from an Open with menu, and it plays.
   Four types and no more, because those are the ones the embedded engine decodes with no bundled
-  codec. A type it cannot decode does not fail politely: the window comes up titled "Error loading
-  video" and has to be closed from Task Manager, which is why .avi, .wmv, .flv, .mpeg and .ogv
-  are absent rather than merely untested
+  codec. A type it cannot decode does not fail politely: the window opens and the stage inside it
+  says "Error loading video", and the close button in the top bar closes it, which is why .avi,
+  .wmv, .flv, .mpeg and .ogv are absent rather than merely untested
 - The registration goes under HKCU\Software\Classes, per user and with no administrator rights,
   which is the only scope an unelevated installer can honestly claim. One version-independent
   ProgID, Dr.Player.Video, sits behind all four, so a later release re-registers the same name and
@@ -17,16 +71,18 @@ File Associations
   writes by a filter driver, so no installer may take a file type away from the program someone
   already uses. Dr.Player sets AllowSilentDefaultTakeOver instead, which is Microsoft's way of
   saying the same thing from the other end: stay in the list, keep out of the decision. Somebody
-  who already had another video player keeps it and simply gains Dr.Player beside it
+  who already had another video player keeps it and gains Dr.Player beside it. That was true of
+  the UserChoice layer and false of the layer below it, which v2.1.0 wrote by mistake: see the
+  v2.1.1 section above
 - Becoming the default is one choice, made once, in Windows' own UI: Settings > Default apps, or
   right-click a video, Open with, Choose another app, then dr-player.exe. The finish page offers
   to open that screen, unchecked, and Windows 10 opens the plain page where Windows 11 opens
   Dr.Player's own
-- Uninstalling takes back exactly what was added: the ProgID key and the application key, whole and
-  recursively, so nothing is left pointing at an exe that is gone, plus Dr.Player's own value in
-  each of the four OpenWithProgids lists and under RegisteredApplications. The per-extension
-  default value is deliberately left in place, because Microsoft's guidance is not to remove a
-  value another program may have taken over since
+- Uninstalling took back the ProgID key and the application key, whole and recursively, so nothing
+  was left pointing at an exe that was gone, plus Dr.Player's own value in each of the four
+  OpenWithProgids lists and under RegisteredApplications. It did not take back the per-extension
+  default value it had written, which on uninstall then named a ProgID that no longer existed;
+  that write and the "exactly" are both corrected in v2.1.1
 
 Installer
 - The how-to text file is gone, with the Start Menu and desktop shortcuts that pointed at it and
