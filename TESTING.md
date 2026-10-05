@@ -1,8 +1,8 @@
 # Dr.Player — Manual QA Testing Guide
 
 > **Target audience:** QA engineers & developers running manual regression tests.
-> **Primary risk:** macOS (WKWebView) crashes from `window.prompt()`, nested `.click()` dispatch,
-> synchronous cursor mutation during keyboard events, and DOM timing races.
+> **Primary risk:** macOS (WKWebView) crashes from nested `.click()` dispatch, synchronous cursor
+> mutation during keyboard events, and DOM timing races.
 > Build with `cargo build --release` and run `./target/release/dr-player <video-file>`.
 
 ---
@@ -23,27 +23,16 @@
 WKWebView on macOS is the most crash-prone platform. Run **all** of the following on macOS
 before every release. If you only have time for one platform test, test macOS.
 
-### 1.1 Prompt replacement (text dialog)
-
-| # | Step | Expected |
-|---|------|----------|
-| 1 | Open a video. Press `D` (or click ✎) to enter draw mode. | Draw toolbar appears, video pauses. |
-| 2 | Click the **Text** tool (or press `T`), then click anywhere on the canvas. | A styled dialog appears: "Enter text:" with an input field, OK and Cancel buttons. **No native `window.prompt()` alert.** |
-| 3 | Type "Hello World" and press **Enter** (or click **OK**). | Dialog closes. Text "Hello World" is rendered on the canvas at the clicked position. |
-| 4 | Click the canvas again with the Text tool, then press **Escape** (or click **Cancel**). | Dialog closes. No text is added. |
-| 5 | Click the Text tool, then click the canvas. Before typing, click the **Pen** tool. | Dialog should remain open (it is a separate overlay). Close it by pressing Escape. The tool should switch to Pen. |
-| 6 | Rapidly: Enter draw mode, click Text tool, click canvas, type, OK, click again, Escape. Do this 10 times. | No crash. Dialog always opens and closes cleanly. |
-
-### 1.2 Cursor mutation deferral (rAF)
+### 1.1 Cursor mutation deferral (rAF)
 
 | # | Step | Expected |
 |---|------|----------|
 | 1 | Enter draw mode. Move mouse over canvas. | Cursor is crosshair (or grab for Hand tool). |
 | 2 | Press tool shortcut keys rapidly: `p`, `l`, `a`, `r`, `c`, `h` in sequence. | Cursor changes smoothly. No crash. |
-| 3 | Exit draw mode (`E` or click ✕ Exit). | Cursor returns to default. |
+| 3 | Exit draw mode (`Escape` or click ✕ Exit). | Cursor returns to default. |
 | 4 | Enter draw mode again immediately. Repeat 10 times. | No crash. Cursor is always correct. |
 
-### 1.3 Click dispatch replacement
+### 1.2 Click dispatch replacement
 
 | # | Step | Expected |
 |---|------|----------|
@@ -53,7 +42,7 @@ before every release. If you only have time for one platform test, test macOS.
 | 4 | Re-enter draw mode. Click the **-5s** seek button in the draw toolbar. | Video seeks backward 5 seconds. No crash. |
 | 5 | Click the **+1F** step button. | Video advances 1 frame. No crash. |
 
-### 1.4 Initialization script timing
+### 1.3 Initialization script timing
 
 | # | Step | Expected |
 |---|------|----------|
@@ -68,7 +57,7 @@ before every release. If you only have time for one platform test, test macOS.
 
 | # | Step | Expected |
 |---|------|----------|
-| 1 | Open any video. Press `D` (or click ✎). | Draw toolbar appears at bottom-center. Video pauses. |
+| 1 | Open any video. Click **✎** in the top bar. | Draw toolbar appears at bottom-center. Video pauses. |
 | 2 | Verify toolbar has: Pen (P), Line (L), Arrow (A), Rectangle (R), Circle (C), Hand (H), color swatches, size slider, undo/redo, clear, ±5s, ±1F, Exit. | All buttons visible. |
 | 3 | Select **Pen** (P). Click and drag on canvas. | A freehand line is drawn following the mouse. |
 | 4 | Release mouse. | Drawing stops. Shape is committed. |
@@ -104,18 +93,7 @@ before every release. If you only have time for one platform test, test macOS.
 | 5 | Click on empty area. | Nothing happens (no shape selected). |
 | 6 | While a shape is selected, press **Delete** or **Backspace**. | Shape is removed. |
 
-### 2.4 Text tool
-
-| # | Step | Expected |
-|---|------|----------|
-| 1 | Select **Text** tool (click data-tool="text" button or... note: no keyboard shortcut; click the toolbar button). | Cursor changes to crosshair. |
-| 2 | Click on canvas. | Dialog opens with text input. |
-| 3 | Type text, press Enter. | Text appears at clicked position. |
-| 4 | In Hand mode, click on the text. | Text is selected. |
-| 5 | Scroll mouse wheel. | Text font size changes (larger/smaller). |
-| 6 | Drag the text. | Text moves. |
-
-### 2.5 Tool switching mid-draw
+### 2.4 Tool switching mid-draw
 
 | # | Step | Expected |
 |---|------|----------|
@@ -124,7 +102,7 @@ before every release. If you only have time for one platform test, test macOS.
 | 3 | Start drawing a line, release (complete). Then switch tool. | The completed line is retained. |
 | 4 | Start a Pen stroke, draw a few points, release. Then switch tool. | The multi-point pen stroke is retained. |
 
-### 2.6 Size & color
+### 2.5 Size & color
 
 | # | Step | Expected |
 |---|------|----------|
@@ -133,7 +111,7 @@ before every release. If you only have time for one platform test, test macOS.
 | 3 | Use size slider to increase to 10. | Subsequent draws are thicker. |
 | 4 | Press `3` on keyboard (in draw mode). | Size becomes 8 (= 2 + 3*2). Slider updates. |
 
-### 2.7 Drag toolbar
+### 2.6 Drag toolbar
 
 | # | Step | Expected |
 |---|------|----------|
@@ -161,23 +139,22 @@ before every release. If you only have time for one platform test, test macOS.
 
 | # | Step | Expected |
 |---|------|----------|
-| 1 | While NOT in draw mode, press `p`, `l`, `a`, `r`, `c`, `h`, `e`. | Nothing happens. (Note: `l` toggles loop — see 3.1/6.) |
+| 1 | While NOT in draw mode, press `p`, `l`, `a`, `r`, `c`, `h`. | Nothing switches tool. Outside draw mode `l` toggles loop (see 3.1/6), `c` reshapes the window and `h` hides the controls. |
 | 2 | Enter draw mode. Press `p`. | Tool = Pen. |
 | 3 | Press `l`. | Tool = Line. |
 | 4 | Press `a`. | Tool = Arrow. |
 | 5 | Press `r`. | Tool = Rectangle. |
 | 6 | Press `c`. | Tool = Circle. |
 | 7 | Press `h`. | Tool = Hand. |
-| 8 | Press `e`. | Exits draw mode. |
-| 9 | Press `1` through `9` in draw mode. | Size changes accordingly. |
-| 10 | Press `0` in draw mode. | Size = 2. |
+| 8 | Press `1` through `9` in draw mode. | Size changes accordingly. |
+| 9 | Press `0` in draw mode. | Size = 2. |
 
 ### 3.3 Escape behavior
 
 | # | Step | Expected |
 |---|------|----------|
 | 1 | Go fullscreen (F11 or F). Press **Escape**. | Exits fullscreen. |
-| 2 | Enter draw mode. Press **Escape**. | **Nothing happens.** Does not exit fullscreen. Does not exit draw mode. (Use `E` or the Exit button to exit draw mode.) |
+| 2 | Enter draw mode. Press **Escape**. | Exits draw mode. The player handler returns early while the draw bar is open, so this does not also leave fullscreen. |
 | 3 | Exit draw mode while fullscreen. Press **Escape**. | Exits fullscreen normally. |
 
 ### 3.4 Modifier keys in draw mode
@@ -185,7 +162,7 @@ before every release. If you only have time for one platform test, test macOS.
 | # | Step | Expected |
 |---|------|----------|
 | 1 | In draw mode, select a shape with Hand tool. Press **Delete**. | Selected shape is removed. |
-| 2 | In draw mode, press **Ctrl+Backspace** (or **Cmd+Backspace** on macOS). | All shapes are cleared. |
+| 2 | In draw mode, press **Backspace**, with no modifier held. | All shapes are cleared, and the clearing is undoable. |
 | 3 | In draw mode, press mouse button 3 (back) on canvas while NOT drawing. | Undoes last shape. |
 | 4 | In draw mode, press mouse button 4 (forward) on canvas while NOT drawing. | Redoes last undone shape. |
 | 5 | In draw mode, **start drawing** (click and drag). While dragging, press mouse button 3. | **Nothing happens.** Undo is blocked while drawing. |
@@ -207,10 +184,9 @@ Test every cell in this matrix before a release.
 | Window drag (title bar) | ✓ | ✓ | ✓ |
 | Window resize (edges) | ✓ | ✓ | ✓ |
 | Minimize / Close | ✓ | ✓ | ✓ |
-| **Draw mode: enter/exit** (button, D, E) | ✓ | **Must test** - crash risk | ✓ |
+| **Draw mode: enter/exit** (✎ button, Escape or ✕ Exit) | ✓ | **Must test** - crash risk | ✓ |
 | **Draw mode: tool switch mid-draw** | ✓ | **Must test** - crash risk | ✓ |
 | **Draw mode: cursor changes** | ✓ | **Must test** - crash risk (rAF fix) | ✓ |
-| **Text dialog** (type, Enter, Escape) | ✓ | **Must test** - crash risk (prompt replacement) | ✓ |
 | **Mouse buttons 3/4 for undo/redo** | ✓ | ✓ | ✓ |
 | Undo/redo buttons | ✓ | ✓ | ✓ |
 | Clear canvas | ✓ | ✓ | ✓ |
@@ -229,10 +205,9 @@ Run this sequence **20 times** without restarting the app:
 2. Draw a few shapes (mix of tools)
 3. Switch tools mid-draw twice
 4. Undo twice, redo once
-5. Enter text via dialog, OK and Cancel
-6. Exit draw mode
-7. Toggle fullscreen
-8. Seek around
+5. Exit draw mode with Escape
+6. Toggle fullscreen
+7. Seek around
 
 If there is no crash after 20 iterations, the macOS fixes are stable.
 
@@ -242,18 +217,23 @@ If there is no crash after 20 iterations, the macOS fixes are stable.
 
 ### 5.1 Global error handlers
 
+The global error handlers write only to the webview console, and this build disables DevTools (`.with_devtools(false)`), so the checks below need a build that exposes it. On a release build there is no way to read what they logged.
+
 | # | Step | Expected |
 |---|------|----------|
-| 1 | Open DevTools console (if available) or enable logging. | |
+| 1 | In a build with DevTools enabled, open the console. | |
 | 2 | In draw mode, evaluate in console: `throw new Error("test crash")` | Error is logged as `GLOBAL_ERROR` but does NOT crash the app. |
 | 3 | Evaluate: `Promise.reject("test rejection")` | Warning logged as `UNHANDLED_PROMISE` but app continues. |
 
 ### 5.2 Rust panic hook
 
+The panic hook prints to stderr, so this one is checkable in a release build. On Windows the binary sets `windows_subsystem = "windows"`, which means no console is attached: a launch by double-clicking shows nothing at all. Start it from a terminal instead, `.\target\release\dr-player.exe <video-file>`, and read stderr there.
+
 | # | Step | Expected |
 |---|------|----------|
-| 1 | If you can inject a Rust panic (e.g., via an invalid IPC message), verify it prints "Dr.Player internal error: ..." to stderr and the app does not immediately crash. | Graceful message to console. |
-| 2 | Under normal use, verify no panics occur. | |
+| 1 | Run the binary from a terminal, so stderr is visible rather than discarded. | |
+| 2 | If you can inject a Rust panic (e.g., via an invalid IPC message), verify it prints "Dr.Player internal error: ..." to stderr and the app does not immediately crash. | Message appears in the terminal. |
+| 3 | Under normal use, verify no panics occur. | |
 
 ### 5.3 Invalid inputs
 
@@ -275,14 +255,13 @@ Run these after every code change to catch regressions fast.
 - [ ] **Pen with 1 point** — the code duplicates the point to draw a dot; verify it renders.
 - [ ] **Canvas mousedown while video is loading** (no duration) — no crash.
 - [ ] **Blur event** while drawing — `window.blur` resets drawing state. Verify this doesn't leave dangling state.
-- [ ] **Text dialog + draw mode conflict** — verify clicking canvas while dialog is open does NOT start a new draw.
 - [ ] **Loop off by default** — verify the loop button shows "Off" state, and the `ended` event does NOT replay.
 - [ ] **Loop on** — toggle on, let video end. Verify it restarts from 0.
 - [ ] **Volume = 0** — icon changes to mute. Click again to unmute at previous level.
 - [ ] **Mouse leave canvas during draw** — `mouseleave` handler sets `drawing = false`. Verify stroke is not extended when mouse re-enters.
 - [ ] **Resize corner cursors** — verify the correct resize cursors appear at window edges (nwse, nesw, ns, ew).
 - [ ] **Undo/redo after clear** — clear canvas, then undo. Shapes should reappear.
-- [ ] **Ctrl+Backspace in draw mode** — clears all shapes. Verify it does NOT navigate back in browser.
+- [ ] **Backspace in draw mode**, no modifier held — clears all shapes and stays undoable.
 - [ ] **Fullscreen toggle in draw mode** — should be blocked (draw mode hides fullscreen). Verify closing draw mode then pressing F11 works.
 
 ---
@@ -293,13 +272,12 @@ For a fast regression check between builds:
 
 ```
 [ ] Launch — video plays
-[ ] Enter draw mode (D) — toolbar visible, video pauses
+[ ] Enter draw mode (✎ button) — toolbar visible, video pauses
 [ ] Draw a line (L), a rect (R), a circle (C)
 [ ] Switch to Pen mid-line (P) — incomplete line cleaned up
 [ ] Undo (↩) — shape removed
 [ ] Redo (↪) — shape back
-[ ] Text dialog — type and OK, then Cancel
-[ ] Exit draw mode (E)
+[ ] Exit draw mode (Escape or ✕ Exit)
 [ ] Press Space — play/pause works
 [ ] Press L — loop toggles
 [ ] Fullscreen (F or F11)

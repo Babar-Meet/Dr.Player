@@ -28,7 +28,7 @@ WKWebView blocks autoplay of audio-containing video without user gesture.
 
 | Quirk | Workaround |
 |-------|------------|
-| Requires `libwebkit2gtk-4.1-dev` (not 4.0) | Verify package version in CI |
+| Requires `libwebkit2gtk-6.0-dev` | Verify package version in CI |
 | No sandbox by default | Use Linux namespaces if embedding |
 | CSP `media-src` restrictions may block localhost | Include `http://127.0.0.1:*` in CSP |
 

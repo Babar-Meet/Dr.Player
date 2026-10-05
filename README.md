@@ -6,6 +6,28 @@
 
 A cross-platform desktop video player with annotation drawing capabilities, built as a single Rust binary that embeds a web-based UI using system-native webviews.
 
+> ### Video formats
+>
+> Dr.Player does not decode video itself. It hands the file to your operating system's built-in browser engine, and that engine decides what plays. There is no transcoding and no fallback, so what works is a property of your operating system, not of this app.
+>
+> | Format | Windows | macOS | Linux |
+> |--------|:-------:|:-----:|:-----:|
+> | MP4 (H.264 video + AAC audio) | ✓ | ✓ | ✓ |
+> | MP4 (HEVC / H.265 — needs Microsoft's free HEVC add-on on Windows) | ✓ | ✓ | ✓ |
+> | MP4 (AV1) | ✓ | ✓ | ✓ |
+> | MOV (H.264) | ✓ | ✓ | ✓ |
+> | WebM (VP8 or VP9) | ✓ | ✓ | ✓ |
+> | MKV / Matroska (H.264) | ✓ | ✗ | ✓ |
+> | 3GP (H.264 + AAC) | ✓ | ✗ | ✓ |
+>
+> **Turned down by Windows and macOS:** AVI, WMV, FLV, MPEG-1 and MPEG-2 (`.mpg`, `.mpeg`, `.m2v`), VOB, MTS / M2TS / transport streams, and Theora in an Ogg (`.ogv`). Several of these can still play on Linux when the distribution installed the right GStreamer plug-ins.
+>
+> A container that plays can still fail on the codec inside it: an `.mkv` holding MPEG-4 Part 2 (DivX or Xvid) is refused even though MKV itself is fine above.
+>
+> When a file will not play, Dr.Player says **Error loading video** on the video stage. That means your operating system's engine turned the file down, not that the file is broken. Converting to H.264 video with AAC audio in an MP4 container is the combination that works on all three; HandBrake is free and does it.
+>
+> The Windows column was tested by playing files on Windows 11 with WebView2 Runtime 154. The macOS and Linux columns come from each platform's documented engine support rather than a test run, and every Linux row depends on which GStreamer plug-ins the distribution installed (`gst-plugins-good`, `gst-libav`, `gst-plugins-bad`).
+
 ---
 
 ## Purpose
@@ -467,7 +489,7 @@ The entire application is **self-contained in a single Rust source file**. The i
 - **Platform-specific webview libraries**:
   - **Windows**: WebView2 runtime (usually pre-installed on Windows 10+)
   - **macOS**: WKWebView (built-in, no extra install)
-  - **Linux**: `libwebkit2gtk-4.1-dev` (not 4.0)
+  - **Linux**: `libwebkit2gtk-6.0-dev`
 
 ### Building from Source
 
@@ -652,7 +674,7 @@ The application relies on system-native webviews via the `wry` library, which in
 - **Fullscreen crash**: The `fullscreen` feature must be enabled in wry's Cargo features.
 
 ### Linux (WebKitGTK)
-- Requires `libwebkit2gtk-4.1-dev` (not 4.0)
+- Requires `libwebkit2gtk-6.0-dev`
 - CSP media-src restrictions may block localhost if not explicitly allowed
 
 ### Windows (WebView2)
@@ -679,8 +701,8 @@ Evidence:
 ## Known Limitations
 
 - **Single video file**: No playlist or folder support — the player accepts only one file path
-- **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, the stage inside the window says "Error loading video", and the close button in the top bar closes it. The window's OS title stays `Dr.Player` throughout, since it is set once at `src/main.rs:3120` and never changed, so "Error loading video" is the in-page heading and not the title bar. Registering a type is a claim the app has to be able to keep, which is why `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent
-- **HEVC inside MP4 is conditional**: Windows needs the HEVC Video Extension installed and a working decoder path. WebView2's Chromium build is not documented by Microsoft as carrying `proprietary_codecs`, so H.264 in MP4 is assumed and untested here; HEVC is the one place that assumption has a documented failure mode (`0xC00DB3B3`, "Failed to create HEVC decoder instance")
+- **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, the stage inside the window says "Error loading video", and the close button in the top bar closes it. The window's OS title stays `Dr.Player` throughout, since it is set once at `src/main.rs:3120` and never changed, so "Error loading video" is the in-page heading and not the title bar. Registering a type is a claim the app has to be able to keep, and it has to hold on every machine carrying the app, not only the one it was tested on. MKV is the case in point: it plays on a current Evergreen Runtime, and `TESTING_videos/` ships two `.mkv` files for exactly that check, but an older Evergreen Runtime without Matroska support would refuse it, so it is deliberately not registered. `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent because neither engine plays them at all
+- **HEVC inside MP4 is conditional**: Windows needs the HEVC Video Extension installed and a working decoder path. H.264 in MP4, H.264 in MOV, VP8 and VP9 in WebM and H.264 in MKV were each played on Windows 11 with WebView2 Runtime 154; HEVC is the one combination here that keeps a documented failure mode (`0xC00DB3B3`, "Failed to create HEVC decoder instance")
 - **No audio device selection**: Uses system default audio output
 - **No subtitle support**: SRT, VTT, or embedded subtitles not rendered
 - **No keyboard shortcut customization**: All shortcuts are hardcoded
@@ -690,7 +712,7 @@ Evidence:
 - **No text annotation in the shipped build**: the toolbar has no text tool and no key reaches the text branch, so text shapes cannot be created from the UI
 - **No automated tests**: the previous Vitest suite was deleted; coverage is manual, via `TESTING.md`
 - **macOS WKWebView-specific crashes**: Mitigated but the underlying platform quirks remain (documented in `WEBVIEW_QUIRKS.md`)
-- **Linux requires `libwebkit2gtk-4.1-dev`**: Not 4.0, which may cause confusion
+- **Linux requires `libwebkit2gtk-6.0-dev`**: the WebKitGTK 6.0 binding, which is what wry 0.39's `webkit2gtk` 2.0.1 dependency links against
 - **Windows requires WebView2 runtime**: Not installed by default on all Windows versions
 - **No video file validation**: Invalid files show "Error loading video" without details
 - **Window resize uses rAF-throttled IPC**: May feel slightly laggy on slow systems
