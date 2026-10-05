@@ -1,8 +1,12 @@
 Dr.Player v2.1.1
 
-This is a correction release, not a feature release. No code changed: the binary is the same
-v2.1.0 build, and none of what follows is a new capability. What changed is the installer around
-it, and four of the five fixes exist because v2.1.0 shipped a claim it did not keep.
+This is a correction release, not a feature release. No code changed: every fix below is in the
+installer around the app, and none of them is a new capability. The binary itself is rebuilt rather
+than reused, because the v2.1.1 installer was first cut around a binary still stamped 2.1.0: the
+version is frozen into the executable at compile time, so a version bump with no rebuild left the app
+asking GitHub for updates against a number its own release had already moved past, and it offered the
+user an update to the version they were already running. Four of the five installer fixes exist
+because v2.1.0 shipped a claim it did not keep.
 
 Why a fresh install was needed rather than an upgrade: v2.1.0's installer wrote the per-extension
 fallback default for all four types, so installing it on a machine that already had a video player

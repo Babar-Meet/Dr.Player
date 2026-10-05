@@ -495,6 +495,22 @@ makensis "-DAPP_VERSION=2.1.1" installer\DrPlayer.nsi
 
 The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\release\dr-player.exe`, so build the binary first.
 
+### Release order
+
+Three commands, in this order, and the order is the whole of it:
+
+```bash
+# 1. bump the version in Cargo.toml: version = "2.1.1"
+
+# 2. rebuild the binary, so the executable carries the new number
+cargo build --release
+
+# 3. only now build the installer, with the same number
+makensis "-DAPP_VERSION=2.1.1" installer\DrPlayer.nsi
+```
+
+The two versions come from two different places, and only one of them is read from `Cargo.toml`. The installer is told its version on the command line, so a bare `makensis` with a stale argument stamps whatever it was handed. The binary's version is `CARGO_PKG_VERSION`, frozen into the executable when it is compiled, and it reaches the binary twice: the HTTP User-Agent at `src/main.rs:2994` and the Windows file-version resource `build.rs` generates through `winres`. A release that bumps `Cargo.toml` and goes straight to `makensis` therefore ships a correctly numbered installer around a binary that reports the previous release, and since the update check compares GitHub's latest tag against the number the binary itself sends, the app offers an update to the version it is already running. Step 2 is not optional and step 3 is not a substitute for it.
+
 ### What the installer registers on Windows
 
 The app takes one required argument, the video to play, and exits with code 2 when started with none. Before v2.1.0 that made it unreachable by double-click, and the installer shipped a text file explaining how to start it by hand. v2.1.0 stopped shipping that file and registered real Windows file associations instead, so the normal way of opening a video reaches the app, and v2.1.1 also deletes the old text file and its two shortcuts on every install, so a machine upgraded from v2.0.0 stops carrying the Win+R instruction on its own Start Menu.
@@ -647,7 +663,7 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**Released** — v2.1.1. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed. v2.1.1 is a correction release over v2.1.0: no code changed, and the same release binary is shipped.
+**Released** — v2.1.1. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed. v2.1.1 is a correction release over v2.1.0: no code changed. The release binary is rebuilt from source rather than reused from v2.1.0, because the version is compiled into the executable and the previous v2.1.1 installer shipped one still stamped 2.1.0, which made the app offer an update to itself. See Release order above.
 
 Evidence:
 - `version = "2.1.1"` in `Cargo.toml`, which is what the installer is told to stamp
