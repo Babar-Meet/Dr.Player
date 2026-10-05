@@ -15,6 +15,7 @@
 4. [Cross-platform test matrix](#4-cross-platform-test-matrix)
 5. [Crash / error resilience tests](#5-crash--error-resilience-tests)
 6. [Edge cases & regression checklist](#6-edge-cases--regression-checklist)
+7. [Quick smoke-test checklist (2-minute run)](#quick-smoke-test-checklist-2-minute-run)
 
 ---
 
@@ -32,7 +33,11 @@ before every release. If you only have time for one platform test, test macOS.
 | 3 | Exit draw mode (`Escape` or click ✕ Exit). | Cursor returns to default. |
 | 4 | Enter draw mode again immediately. Repeat 10 times. | No crash. Cursor is always correct. |
 
-### 1.2 Click dispatch replacement
+### 1.2 Click dispatch replacement — draw toolbar
+
+The draw toolbar dispatches real mouse clicks end to end. The player shortcuts do not: `.`, `,`,
+`F`/`F11`, `M` and `L` still call `.click()` on the HUD buttons. Click the buttons themselves in
+the steps below, so what is tested is the path that changed.
 
 | # | Step | Expected |
 |---|------|----------|
@@ -40,7 +45,7 @@ before every release. If you only have time for one platform test, test macOS.
 | 2 | Click the **Pen** tool button in the toolbar (not the keyboard shortcut). | Tool switches. No crash. |
 | 3 | Click **✕ Exit** button directly. | Exits draw mode cleanly. |
 | 4 | Re-enter draw mode. Click the **-5s** seek button in the draw toolbar. | Video seeks backward 5 seconds. No crash. |
-| 5 | Click the **+1F** step button. | Video advances 1 frame. No crash. |
+| 5 | Click the **+1F** step button. | Video time moves forward by exactly 1/60 s (16.7 ms) and the player stays paused. The step is a fixed time, not a frame: nothing reads the source frame rate, so on a 30 fps source it is half a frame and on a 24 fps source two fifths of one. No crash. |
 
 ### 1.3 Initialization script timing
 
@@ -84,14 +89,18 @@ before every release. If you only have time for one platform test, test macOS.
 
 ### 2.3 Hand tool — select & move
 
+A shape is only "selected" while a mouse button is held down on it. The selection is dropped on
+mouse-up and on mouse-leave, so there is no persistent selection state to act on afterwards.
+
 | # | Step | Expected |
 |---|------|----------|
 | 1 | Draw a shape. Select **Hand** (H). | Cursor changes to grab. |
-| 2 | Click on the shape. | Shape is selected. Cursor changes to grabbing. |
+| 2 | Press and hold the left mouse button on the shape. | Cursor changes to grabbing. The shape is picked up, and only for as long as the button is held. |
 | 3 | Drag the shape. | Shape moves with mouse. |
-| 4 | Release. | Shape stays at new position. |
-| 5 | Click on empty area. | Nothing happens (no shape selected). |
-| 6 | While a shape is selected, press **Delete** or **Backspace**. | Shape is removed. |
+| 4 | Release. | Shape stays at new position. Nothing stays selected. |
+| 5 | Click on empty area. | Nothing happens. |
+| 6 | Press and hold the left mouse button on the shape, then press **Delete** before letting go. | That one shape is removed, and the removal is undoable. Letting go first removes the selection, and a later **Delete** then does nothing at all. |
+| 7 | Press **Backspace** (no modifier held). | **Every** shape is cleared, not just one. Undo (↩) brings them all back. |
 
 ### 2.4 Tool switching mid-draw
 
@@ -139,7 +148,7 @@ before every release. If you only have time for one platform test, test macOS.
 
 | # | Step | Expected |
 |---|------|----------|
-| 1 | While NOT in draw mode, press `p`, `l`, `a`, `r`, `c`, `h`. | Nothing switches tool. Outside draw mode `l` toggles loop (see 3.1/6), `c` reshapes the window and `h` hides the controls. |
+| 1 | While NOT in draw mode, press `p`, `l`, `a`, `r`, `c`, `h`. | Nothing switches tool. Outside draw mode `l` toggles loop (see 3.1/7), `c` reshapes the window and `h` hides the controls. |
 | 2 | Enter draw mode. Press `p`. | Tool = Pen. |
 | 3 | Press `l`. | Tool = Line. |
 | 4 | Press `a`. | Tool = Arrow. |
@@ -161,7 +170,7 @@ before every release. If you only have time for one platform test, test macOS.
 
 | # | Step | Expected |
 |---|------|----------|
-| 1 | In draw mode, select a shape with Hand tool. Press **Delete**. | Selected shape is removed. |
+| 1 | In draw mode, select **Hand** (H), press and hold the left mouse button on a shape, then press **Delete** before letting go. | The held shape is removed. **Do not release first:** the selection is dropped on mouse-up, so a **Delete** pressed after releasing does nothing. |
 | 2 | In draw mode, press **Backspace**, with no modifier held. | All shapes are cleared, and the clearing is undoable. |
 | 3 | In draw mode, press mouse button 3 (back) on canvas while NOT drawing. | Undoes last shape. |
 | 4 | In draw mode, press mouse button 4 (forward) on canvas while NOT drawing. | Redoes last undone shape. |
@@ -178,7 +187,7 @@ Test every cell in this matrix before a release.
 | Launch & load video | Stress-test with 20 files | Stress-test with 20 files | Verify works |
 | Play/Pause (Space, button) | ✓ | ✓ | ✓ |
 | Seek (±5s buttons, arrows) | ✓ | ✓ | ✓ |
-| Frame step (±1F) | ✓ | ✓ | ✓ |
+| Frame step (±1F, fixed 1/60 s — not the source frame rate) | ✓ | ✓ | ✓ |
 | Volume (slider, arrows, M) | ✓ | ✓ | ✓ |
 | Fullscreen (button, F, F11, Escape) | ✓ | **Must test** - WKWebView fullscreen transitions | ✓ |
 | Window drag (title bar) | ✓ | ✓ | ✓ |
@@ -197,7 +206,7 @@ Test every cell in this matrix before a release.
 | **Error resilience** (see §5) | ✓ | **Must test** | ✓ |
 | Window blur while drawing | ✓ | ✓ | ✓ |
 
-### Repetition stress test (macOS critical)
+### 4.1 Repetition stress test (macOS critical)
 
 Run this sequence **20 times** without restarting the app:
 
@@ -215,35 +224,40 @@ If there is no crash after 20 iterations, the macOS fixes are stable.
 
 ## 5. Crash & error resilience tests
 
-### 5.1 Global error handlers
+### 5.1 Rust panic hook
 
-The global error handlers write only to the webview console, and this build disables DevTools (`.with_devtools(false)`), so the checks below need a build that exposes it. On a release build there is no way to read what they logged.
+What the code does: the panic hook prints `Dr.Player internal error: {info}` to stderr
+(`src/main.rs:3081-3082`). That line is the only diagnostic this app emits, anywhere, on every
+platform. Nothing else logs, so its absence is a result and not a fault.
 
-| # | Step | Expected |
-|---|------|----------|
-| 1 | In a build with DevTools enabled, open the console. | |
-| 2 | In draw mode, evaluate in console: `throw new Error("test crash")` | Error is logged as `GLOBAL_ERROR` but does NOT crash the app. |
-| 3 | Evaluate: `Promise.reject("test rejection")` | Warning logged as `UNHANDLED_PROMISE` but app continues. |
-
-### 5.2 Rust panic hook
-
-The panic hook prints to stderr, so this one is checkable in a release build. On Windows the binary sets `windows_subsystem = "windows"`, which means no console is attached: a launch by double-clicking shows nothing at all. Start it from a terminal instead, `.\target\release\dr-player.exe <video-file>`, and read stderr there.
-
-| # | Step | Expected |
-|---|------|----------|
-| 1 | Run the binary from a terminal, so stderr is visible rather than discarded. | |
-| 2 | If you can inject a Rust panic (e.g., via an invalid IPC message), verify it prints "Dr.Player internal error: ..." to stderr and the app does not immediately crash. | Message appears in the terminal. |
-| 3 | Under normal use, verify no panics occur. | |
-
-### 5.3 Invalid inputs
+Two honest limits on seeing it. The binary is a GUI-subsystem process
+(`#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]`, `src/main.rs:1`), so it gets no
+console **window** of its own, and it writes no log file. A launch by double-clicking the exe therefore
+shows nothing at all, whatever the app is doing, and there is no file to open afterwards. The stderr
+handle itself is still valid, though: a GUI-subsystem process started from a console inherits that
+console's handles, so a launch from a console can read what the hook printed.
 
 | # | Step | Expected |
 |---|------|----------|
-| 1 | In draw mode, call `switchTool("")` via console. | No crash. Tool is set to empty string (unexpected but not crashing). |
-| 2 | Set size slider to 0 (hack via console: `document.getElementById('csize').value = 0`). Draw. | Size 0 still works (min should be 1). |
-| 3 | Resize the window while drawing. | Canvas resizes. Shapes are re-rendered. No crash. |
-| 4 | Hide the HUD (◎ button) then enter draw mode. | Draw mode still works. |
-| 5 | Rapidly click the Draw button (✎) on/off as fast as possible. | No crash. |
+| 1 | Use the app normally through one full draw-mode pass and the smoke checklist. | No visible crash, hang, or lost window. |
+| 2 | From `cmd.exe`, run `target\release\dr-player.exe <video-file>`. Watch the terminal, or put `2> err.txt` on the end of the same command line to capture stderr into a file instead of watching it scroll. | stderr stays empty. An empty `err.txt` means no panic was caught on that run. Do not report the hook as broken on the basis of an empty file. |
+| 3 | Repeat step 2 from `cmd.exe` while working the app through the 4.1 sequence, 20 iterations of draw, undo, redo, tool switch, fullscreen and seek, again with `2> err.txt`. | `err.txt` is empty, meaning no panic was caught across the run. A line starting `Dr.Player internal error:` means a panic was caught, and the text after it names the source location. |
+
+Run step 2 and step 3 from `cmd.exe`, not from PowerShell. A `2>` redirection in PowerShell can
+produce an empty file for a GUI-subsystem process, which then reads as "no panic" when it means "not
+captured". Watching the terminal without a redirection works in either shell.
+
+The hook only adds that line to stderr. It does not change what a panic does to the process, so a
+caught panic still ends the run and the window still disappears: the message and the disappearance are
+one event, not two faults.
+
+### 5.2 Invalid inputs
+
+| # | Step | Expected |
+|---|------|----------|
+| 1 | Resize the window while drawing. | Canvas resizes. Shapes are re-rendered. No crash. |
+| 2 | Hide the HUD with the **eye icon** (title bar, left of the fill button) then enter draw mode. | Draw mode still works. |
+| 3 | Rapidly click the Draw button (✎) on/off as fast as possible. | No crash. |
 
 ---
 
@@ -257,7 +271,7 @@ Run these after every code change to catch regressions fast.
 - [ ] **Blur event** while drawing — `window.blur` resets drawing state. Verify this doesn't leave dangling state.
 - [ ] **Loop off by default** — verify the loop button shows "Off" state, and the `ended` event does NOT replay.
 - [ ] **Loop on** — toggle on, let video end. Verify it restarts from 0.
-- [ ] **Volume = 0** — icon changes to mute. Click again to unmute at previous level.
+- [ ] **Volume = 0** — icon changes to mute. Click the icon again: volume returns to **50%**, not to the level you had before, because driving the slider (or `ArrowDown`) to 0 overwrites the stored level with 0. Muting with the icon or `M` instead leaves the stored level alone, so that path *does* return to the previous level.
 - [ ] **Mouse leave canvas during draw** — `mouseleave` handler sets `drawing = false`. Verify stroke is not extended when mouse re-enters.
 - [ ] **Resize corner cursors** — verify the correct resize cursors appear at window edges (nwse, nesw, ns, ew).
 - [ ] **Undo/redo after clear** — clear canvas, then undo. Shapes should reappear.
@@ -274,7 +288,8 @@ For a fast regression check between builds:
 [ ] Launch — video plays
 [ ] Enter draw mode (✎ button) — toolbar visible, video pauses
 [ ] Draw a line (L), a rect (R), a circle (C)
-[ ] Switch to Pen mid-line (P) — incomplete line cleaned up
+[ ] Start a line (L), drag, then press R before releasing — tool switches, the line is kept
+[ ] Select Pen (P), press and hold on the canvas without moving, then press L before releasing — the one-point stroke is discarded
 [ ] Undo (↩) — shape removed
 [ ] Redo (↪) — shape back
 [ ] Exit draw mode (Escape or ✕ Exit)

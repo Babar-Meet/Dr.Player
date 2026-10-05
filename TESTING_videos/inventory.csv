@@ -1,14 +1,14 @@
-﻿Name,Format,SizeKB,Source
-sample-1mb_alt.mp4,MP4,121,filesfortesting.com
-rabbit320.mp4,MP4,815,MDN/mdn.github.io
-flower.mp4,MP4,1102,MDN/mdn.github.io
-elephants_dream_1024x576_30s.mp4,MP4,15358,archive.org (Blender)
-flower.webm,WebM,541,MDN/mdn.github.io
-rabbit320.webm,WebM,323,MDN/mdn.github.io
-test-vp9.webm,WebM,43,WPT/web-platform-tests
-sample-5s.avi,AVI,317,samplefile.com
-sample-15s.avi,AVI,926,samplefile.com
-sample_640x360.avi,AVI,570,filesamples.com
-sample_1280x720.mov,MOV,17027,testfile.org
-sample_640x360.mkv,MKV,560,filesamples.com
-test1-matroskaconformance.mkv,MKV,22792,Matroska-Org/test-files
+﻿Name,Format,SizeKB,Source,Container,VideoCodec,AudioCodec,WindowsPlayback,License,Notes
+sample-1mb_alt.mp4,MP4,121,unknown,not a container,none,none,not a video,unknown,"Committed HTML landing page, not media: first bytes are <!doctype html>. ffprobe reports moov atom not found. Intended source unknown."
+rabbit320.mp4,MP4,815,MDN/mdn.github.io,mov/mp4,h264 (Constrained Baseline),aac (LC),plays,CC0,
+flower.mp4,MP4,1102,MDN/mdn.github.io,mov/mp4,h264 (High),aac (LC),plays,CC0,
+elephants_dream_1024x576_30s.mp4,MP4,15358,archive.org (Blender),mov/mp4,h264 (Constrained Baseline),aac (LC),plays,CC-BY 3.0 (Blender Foundation),"Filename says 1024x576 and 30s; ffprobe reports 426x240 and 653.79 s. CC-BY attribution outstanding: no LICENSE.txt exists."
+flower.webm,WebM,541,MDN/mdn.github.io,matroska/webm,vp8,vorbis (2ch),plays,CC0,
+rabbit320.webm,WebM,323,MDN/mdn.github.io,matroska/webm,vp8,vorbis (2ch),plays,CC0,
+test-vp9.webm,WebM,43,WPT/web-platform-tests,matroska/webm,vp9 (Profile 0),none,plays,BSD-3 / Public Domain,"No audio stream at all."
+sample-5s.avi,AVI,317,samplefile.com,avi,mpeg4 (Simple Profile),mp3 (1ch),refused,Public domain,
+sample-15s.avi,AVI,926,samplefile.com,avi,mpeg4 (Simple Profile),mp3 (1ch),refused,Public domain,
+sample_640x360.avi,AVI,570,filesamples.com,avi,mpeg4 (Simple Profile),none,refused,Royalty-free,"No audio stream."
+sample_1280x720.mov,MOV,17027,testfileorg.netwet.net,mov/mp4,h264 (High),none,plays,Free to use,"No audio stream."
+sample_640x360.mkv,MKV,560,filesamples.com,matroska/webm,h264 (High),none,plays,Royalty-free,"No audio stream."
+test1-matroskaconformance.mkv,MKV,22792,ietf-wg-cellar/matroska-test-files,matroska/webm,msmpeg4v2 (MPEG-4 Part 2),mp3 (2ch),refused,CC-BY 3.0 (Big Buck Bunny / Blender Foundation),"Refusal fixture, not a playback fixture: the Matroska container plays but the MPEG-4 Part 2 video codec is refused. CC-BY attribution outstanding: no LICENSE.txt exists."
