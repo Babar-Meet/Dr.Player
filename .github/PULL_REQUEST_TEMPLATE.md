@@ -53,8 +53,7 @@ So every box here is manual-only, including the ones a hook happens to overlap.
       are from the Rust event loop (`2898`, `3202`), though `2898` is entered while a user gesture is
       still in flight. (manual)
 - [ ] All `alert`/`confirm`/`prompt` replaced with custom JS UI (manual)
-- [ ] CSS uses `-webkit-` prefixes where needed (`user-select` at `src/main.rs:17-18` is the live
-      example; `backdrop-filter` is named in older checklists but the app does not use it) (manual)
+- [ ] CSS uses `-webkit-` prefixes where needed (`user-select` and `-webkit-backdrop-filter` are implemented for Safari/WKWebView compatibility) (manual)
 - [ ] No reliance on `beforeunload` (manual)
 
 ### Cross-Platform

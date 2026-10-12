@@ -28,7 +28,7 @@ WKWebView blocks autoplay of audio-containing video without a user gesture. What
 
 | Quirk | Workaround |
 |-------|------------|
-| `backdrop-filter` requires `-webkit-backdrop-filter` | **Not applicable here.** The app uses neither property; it reaches for opaque fills (`src/main.rs:61`, `background: #16161a`) because a translucent wash on this chrome has nothing to read against (`src/main.rs:58`) |
+| `backdrop-filter` requires `-webkit-backdrop-filter` | **Both properties are provided.** The floating speed indicator pill and speed adjustment menu use dark glassmorphism with both `backdrop-filter` and `-webkit-backdrop-filter` for full cross-engine compatibility across WebKit and Chromium. |
 | `object-fit: contain` on `<video>` may letterbox incorrectly | `width: 100%` and `height: 100%` are both set with `object-fit: contain` (`src/main.rs:22-27`). Per the comment at `28-30`, `contain` is the only fit the file declares in every mode, and Fill mode gives the window the video's own shape instead, so there is no empty space for `contain` to letterbox |
 | Canvas `getContext('2d')` differs in sub-pixel rendering | **No workaround in this app.** The 2D context is `src/main.rs:2746` and the drawing path (`2768-2809`, `drawShape`) rounds nothing. The only two `Math.round()` calls are window dimensions in `resizeShape()` (`1677`) and playback-rate quantisation in `stepRate()` (`2172`) |
 

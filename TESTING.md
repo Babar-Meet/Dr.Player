@@ -288,11 +288,7 @@ Three features arrived together and none of them had a checklist here, so this s
 test story for them. All three are about something surviving a launch, so leaving and relaunching the
 app is part of nearly every step.
 
-They share one state file: `%APPDATA%\Dr.Player\state.json` on Windows,
-`~/Library/Application Support/Dr.Player/state.json` on macOS, and
-`$XDG_CONFIG_HOME/Dr.Player/state.json` or `~/.config/Dr.Player/state.json` on Linux. It holds the
-window's remembered geometry and one playback position per file. The app reads it once, at launch,
-so it can be opened in a text editor between runs to set up an exact case.
+They share one state file: `state.json` stored directly in the executable's directory (portable persistence, with automatic migration from `%APPDATA%\Dr.Player\state.json` on Windows, `~/Library/Application Support/Dr.Player/state.json` on macOS, and `~/.config/Dr.Player/state.json` on Linux if an older state was present). It holds the window's remembered geometry, global hold-to-speed preference, and one playback position per file. The app reads it once, at launch, so it can be opened in a text editor between runs to set up an exact case.
 
 Three facts the steps below lean on:
 
@@ -363,7 +359,7 @@ does either.
 | 2 | Touch nothing and count from the moment it appears. | It is gone on its own after **10 s** (`RESUME_TIMEOUT_MS`). |
 | 3 | Let it time out, watch on to about 00:00:25, pause, close with ✕, and relaunch. | The chip offers 00:00:25. Timing out is not a dismissal: the video was still being watched, so where it was left is still worth having. |
 | 4 | While the chip is up, move the mouse and press keys. | The chrome reappears as it always does. The chip's timer is a timeout and is **not** reset by this. |
-| 5 | With the chip up, press nothing at all and let the ten seconds run, then close with ✕ straight away without pausing, and open `%APPDATA%\Dr.Player\state.json` in a text editor. | The entry for this file is **byte for byte the one you wrote before closing last time**: same `t`, same `at`. The timeout hid the chip and reached nothing else — it did not clear the entry and it did not rewrite it. |
+| 5 | With the chip up, press nothing at all and let the ten seconds run, then close with ✕ straight away without pausing, and open `state.json` (next to `dr-player.exe`) in a text editor. | The entry for this file is **byte for byte the one you wrote before closing last time**: same `t`, same `at`. The timeout hid the chip and reached nothing else — it did not clear the entry and it did not rewrite it. |
 
 ### 7.4 Window size and position memory
 
