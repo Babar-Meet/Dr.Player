@@ -15,7 +15,8 @@
 4. [Cross-platform test matrix](#4-cross-platform-test-matrix)
 5. [Crash / error resilience tests](#5-crash--error-resilience-tests)
 6. [Edge cases & regression checklist](#6-edge-cases--regression-checklist)
-7. [Quick smoke-test checklist (2-minute run)](#quick-smoke-test-checklist-2-minute-run)
+7. [Resume position, window memory and frame stepping](#7-resume-position-window-memory-and-frame-stepping)
+8. [Quick smoke-test checklist (2-minute run)](#quick-smoke-test-checklist-2-minute-run)
 
 ---
 
@@ -45,7 +46,7 @@ the steps below, so what is tested is the path that changed.
 | 2 | Click the **Pen** tool button in the toolbar (not the keyboard shortcut). | Tool switches. No crash. |
 | 3 | Click **✕ Exit** button directly. | Exits draw mode cleanly. |
 | 4 | Re-enter draw mode. Click the **-5s** seek button in the draw toolbar. | Video seeks backward 5 seconds. No crash. |
-| 5 | Click the **+1F** step button. | Video time moves forward by exactly 1/60 s (16.7 ms) and the player stays paused. The step is a fixed time, not a frame: nothing reads the source frame rate, so on a 30 fps source it is half a frame and on a 24 fps source two fifths of one. No crash. |
+| 5 | Click the **+1F** step button. | Video time moves forward by one frame of the file and the player stays paused. The step is the frame interval measured from the video itself, so about 1/60 s (16.7 ms) on a 60 fps source, 1/30 s (33.3 ms) at 30 fps and 1/24 s (41.7 ms) at 24 fps. It is a time and not a frame boundary, so the engine decodes from whatever frame is nearest. See §7.5. No crash. |
 
 ### 1.3 Initialization script timing
 
@@ -187,7 +188,7 @@ Test every cell in this matrix before a release.
 | Launch & load video | Stress-test with 20 files | Stress-test with 20 files | Verify works |
 | Play/Pause (Space, button) | ✓ | ✓ | ✓ |
 | Seek (±5s buttons, arrows) | ✓ | ✓ | ✓ |
-| Frame step (±1F, fixed 1/60 s — not the source frame rate) | ✓ | ✓ | ✓ |
+| Frame step (±1F, the source's own frame interval — see §7.5) | ✓ | ✓ | ✓ |
 | Volume (slider, arrows, M) | ✓ | ✓ | ✓ |
 | Fullscreen (button, F, F11, Escape) | ✓ | **Must test** - WKWebView fullscreen transitions | ✓ |
 | Window drag (title bar) | ✓ | ✓ | ✓ |
@@ -227,7 +228,7 @@ If there is no crash after 20 iterations, the macOS fixes are stable.
 ### 5.1 Rust panic hook
 
 What the code does: the panic hook prints `Dr.Player internal error: {info}` to stderr
-(`src/main.rs:3081-3082`). That line is the only diagnostic this app emits, anywhere, on every
+(`src/main.rs:3736-3737`). That line is the only diagnostic this app emits, anywhere, on every
 platform. Nothing else logs, so its absence is a result and not a fault.
 
 Two honest limits on seeing it. The binary is a GUI-subsystem process
@@ -277,6 +278,134 @@ Run these after every code change to catch regressions fast.
 - [ ] **Undo/redo after clear** — clear canvas, then undo. Shapes should reappear.
 - [ ] **Backspace in draw mode**, no modifier held — clears all shapes and stays undoable.
 - [ ] **Fullscreen toggle in draw mode** — should be blocked (draw mode hides fullscreen). Verify closing draw mode then pressing F11 works.
+
+---
+
+## 7. Resume position, window memory and frame stepping
+
+Three features arrived together and none of them had a checklist here, so this section is the whole
+test story for them. All three are about something surviving a launch, so leaving and relaunching the
+app is part of nearly every step.
+
+They share one state file: `%APPDATA%\Dr.Player\state.json` on Windows,
+`~/Library/Application Support/Dr.Player/state.json` on macOS, and
+`$XDG_CONFIG_HOME/Dr.Player/state.json` or `~/.config/Dr.Player/state.json` on Linux. It holds the
+window's remembered geometry and one playback position per file. The app reads it once, at launch,
+so it can be opened in a text editor between runs to set up an exact case.
+
+Three facts the steps below lean on:
+
+- **The time readout is whole seconds.** The formatter floors, so nothing on screen shows a fraction.
+  Where a step needs a particular stored position, write it into the state file rather than trying to
+  stop the video on the second.
+- **A position is written when playback pauses, and by the ✕ button in the top bar**, which writes
+  before it closes. Alt+F4, the taskbar close button, and a session that simply ends do **not** write
+  one. So the way to leave a position behind is to press Space, or to close with ✕.
+- **Escape does not touch the resume chip.** It asks the window to leave fullscreen and nothing else.
+  §7.2 is where that is checked.
+
+Fixture lengths and rates below were measured from the files in `TESTING_videos/`, not read off their
+names. This reproduces them:
+
+```
+ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
+        -show_entries format=duration -of default=nw=1 <file>
+```
+
+| File | Rate | Length | Offer band (5 s to 90%) |
+|------|------|--------|-------------------------|
+| `rabbit320.mp4`, `rabbit320.webm` | 30 fps | 7.800 s | 5 s – 7.02 s (narrow) |
+| `sample_640x360.mkv` | 29.97 fps | 13.346 s | 5 s – 12.01 s |
+| `sample_1280x720.mov` | 23.976 fps | 28.237 s | 5 s – 25.41 s (widest) |
+| `flower.mp4`, `flower.webm` | 29.97 fps | 5.055 s | **empty** — never offered |
+| `test-vp9.webm` | 24 fps | 2.000 s | **empty** — never offered |
+| `elephants_dream_1024x576_30s.mp4` | 24 fps | 653.792 s | 5 s – 588.41 s |
+
+### 7.1 Resume offer thresholds
+
+| # | Step | Expected |
+|---|------|----------|
+| 1 | Launch a file that has no stored position. | Video plays from 0:00 and **no chip appears**. |
+| 2 | On `rabbit320.mp4`, stop at about 00:00:03, close with ✕, relaunch. | **No chip.** Under `RESUME_MIN_SECONDS = 5` there is nothing worth resuming to, and four seconds of a file is noise over the opening. |
+| 3 | On the same file, stop at about 00:00:06, close with ✕, relaunch. | Chip appears with **one** button on it, reading **Continue from 00:00:06**. There is no second control and nothing to refuse with. |
+| 4 | Stop that file past 00:00:07.02 — 90 per cent of 7.8 s — close with ✕, relaunch. | **No chip.** Past `RESUME_END_FRACTION = 0.9` somebody opening it again is asking to watch it afresh. |
+| 5 | Repeat steps 3 and 4 on `sample_1280x720.mov`, stopping at 20 s and at 26 s. | Chip at 20 s, no chip at 26 s. The band scales with the file; it is not a fixed number of seconds from the end. |
+| 6 | Launch `flower.mp4` or `test-vp9.webm` with a stored position inside what would otherwise be the band. | **No chip, always.** Their 90 per cent mark (4.55 s and 1.80 s) is below the 5 s minimum, so no position on either file can ever be offered. This is the two rules meeting, and it is a refusal rather than a bug. |
+| 7 | Hand-edit a stored position to a number past the file's duration, and separately to one for a file whose recorded byte size no longer matches the file on disk. Relaunch each time. | **No chip, and no error either time.** A position that does not belong to the file that is actually open is not offered. |
+| 8 | Open the offer and watch that the video is **not** paused and the chip has **not** taken focus. | The video keeps playing. Pressing Space while the chip is up does not pause it. |
+
+### 7.2 The one answer, what is not one, and what Escape is not
+
+The chip carries a single button. Everything else that takes it off the screen is the same action as
+the ten-second timeout: hide the chip, change nothing else. None of them clears the stored position
+and none of them stops the file recording one, because a file reaching its end is the only thing that
+does either.
+
+| # | Step | Expected |
+|---|------|----------|
+| 1 | Relaunch onto a file with an offer. Click **Continue from …**. | The video jumps to the saved position and **keeps playing**. Nothing pauses. The position stays stored, because the video really is at that position. |
+| 2 | Relaunch onto a file with an offer, and let the ten seconds run with no input at all (see §7.3). | The chip goes away. Playback is **left exactly where it was** — no seek, no pause — and nothing is cleared or written. |
+| 3 | Continue as in step 1, watch on to about 00:00:20, pause, close with ✕, and relaunch. | The chip offers 00:00:20. Taking the offer is not refusing it, so this file keeps recording normally. |
+| 4 | Relaunch onto a file with an offer and click anywhere on the picture while it is up. | The chip goes away, playback is **left exactly where it was** — it does not seek to 0:00 — and the stored position is still there. |
+| 5 | Repeat step 4, then watch on to about 00:00:25, pause, close with ✕, and relaunch. | **The chip offers 00:00:25.** A click is not a refusal either: the file was still being watched, so where it was left is still worth having. |
+| 6 | With the chip up, go fullscreen (F or F11), then press **Escape**. | **Only** fullscreen is left. **The chip is still on screen**, and the stored position is untouched. Escape does one thing in this app and that is it; it never touches the controls. |
+| 7 | With the chip up and the video **not** fullscreen, press **Escape**. | **Nothing at all happens.** No chip dismissed, no playback touched, nothing written. |
+| 8 | Tab to the Continue button on the chip and press **Enter**. | The same as clicking it: the video jumps to the saved position and keeps playing. **Space** on that focused button also activates it and does **not** pause the video — the chip stops keys so one press cannot do both. |
+| 9 | Let a file play all the way to its end. | The stored position is cleared at the end, and this is the **only** thing that clears one: the button, the timeout and a click on the picture all leave it standing. |
+| 10 | Turn **loop** on and watch to the end. | The file replays from 0, and **no position is written at all**, whether or not the chip was ever offered. |
+
+### 7.3 The chip's own timeout
+
+| # | Step | Expected |
+|---|------|----------|
+| 1 | Launch `sample_1280x720.mov` with a stored position of 20 s, so there is film left to watch while the chip is up. | Chip appears. |
+| 2 | Touch nothing and count from the moment it appears. | It is gone on its own after **10 s** (`RESUME_TIMEOUT_MS`). |
+| 3 | Let it time out, watch on to about 00:00:25, pause, close with ✕, and relaunch. | The chip offers 00:00:25. Timing out is not a dismissal: the video was still being watched, so where it was left is still worth having. |
+| 4 | While the chip is up, move the mouse and press keys. | The chrome reappears as it always does. The chip's timer is a timeout and is **not** reset by this. |
+| 5 | With the chip up, press nothing at all and let the ten seconds run, then close with ✕ straight away without pausing, and open `%APPDATA%\Dr.Player\state.json` in a text editor. | The entry for this file is **byte for byte the one you wrote before closing last time**: same `t`, same `at`. The timeout hid the chip and reached nothing else — it did not clear the entry and it did not rewrite it. |
+
+### 7.4 Window size and position memory
+
+| # | Step | Expected |
+|---|------|----------|
+| 1 | Resize the window to something ordinary, move it, wait about a second, then close with ✕. Relaunch. | Same size, same position. |
+| 2 | Drag a resize corner down to a few hundred pixels across. | The window goes as small as you take it. **Nothing clamps a live resize**, and that is deliberate: a very small window is the picture-in-picture substitute. |
+| 3 | Close at that small size and relaunch. | The window opens at the **default 1280×720**, not at the small size. A remembered size under 200×120 (`MIN_RESTORED_WIDTH` / `MIN_RESTORED_HEIGHT`) is refused, because a window that small could not hold the 48 px top bar and the 41 px bottom row without the two overlapping — and with no system chrome, those are the only way the window can be moved or resized. |
+| 4 | Hand-edit `"window"` in the state file to a size that is not a size — `"w": 1e30`, a negative, or a missing side — and relaunch. | The app **opens at the default**, with no error and no dialog. A size read back from the file goes through the same `is_postable_size` test a live resize goes through. |
+| 5 | Hand-edit `"window"` to a real but tiny size such as 100×80, and relaunch. | Default again, for the reason in step 3. |
+| 6 | Move the window so the saved rectangle would sit entirely off any monitor — `"x": -5000, "y": -5000` — and relaunch. | The window opens **centred on the primary monitor at the same size**. The position is dropped; the size is kept. |
+| 7 | Move the window so it hangs half off the right-hand edge, and relaunch. | **Restored where it was.** The guard is that the whole rectangle still fits a monitor that is connected now, not that every pixel is on screen. |
+| 8 | Unplug or disable the monitor the window was left on, and relaunch on what is left. | It opens on a connected monitor rather than off-screen. |
+| 9 | Go fullscreen, quit, and relaunch. | Opens **windowed**, at the remembered size. Fullscreen is never remembered. |
+| 10 | Turn on fill mode (C), reshape the window, close, and relaunch. | The fill-mode shape is not remembered either. The remembered size is the last one the owner gave the window itself. |
+| 11 | Replace the state file with the text `not json`, then with an empty file, then delete it, relaunching each time. | The app opens normally every time, remembering nothing. None of the three is a reason not to open, and none is anything the owner did wrong. |
+| 12 | Make the config directory read-only, then launch and close. | It opens and closes normally. A write that fails is dropped; there is no dialog and no complaint. |
+
+### 7.5 Frame stepping at more than one frame rate
+
+The step is the file's own frame interval, measured from the video as it plays. That makes it
+directly countable: **how many presses of `+1F` it takes to move the readout on by one second is the
+frame rate**, because the readout advances once per `1/rate` presses. Count presses on a paused video,
+where every press is one step.
+
+| # | Step | Expected |
+|---|------|----------|
+| 1 | Open `sample_1280x720.mov` (23.976 fps), pause, and count presses of **+1F** until the readout ticks over by one second. | **24 presses.** 23.976 is within 2 per cent of 24, so it is read as exactly 1/24. |
+| 2 | Repeat on `rabbit320.mp4` (30 fps). | **30 presses.** |
+| 3 | Repeat on `flower.mp4` and on `sample_640x360.mkv` (29.97 fps). | **30 presses.** 29.97 is within 2 per cent of 30 and is read as exactly 1/30. |
+| 4 | Repeat on `elephants_dream_1024x576_30s.mp4` (24 fps, and 653 s long, so it is the easiest one to count in). | **24 presses.** |
+| 5 | Repeat using the `,` and `.` keys, and again on the two step buttons in the draw toolbar. | The same count every time. All four call sites move by the same interval. |
+| 6 | Repeat on a 25, 50, 60 or 120 fps clip. | **25, 50, 60 and 120 presses** respectively. No fixture at these rates ships in `TESTING_videos/`; make one with `ffmpeg -i in.mp4 -r 50 -c:v libx264 -an out.mp4`, and confirm what you built by running the `ffprobe` line above against it. |
+| 7 | Compare every count above against 60. | **60 at every rate is the bug this replaced**, not the expected result. If every file you open takes 60 presses per second, the measurement is not running and the step has fallen back to the old fixed 1/60 s. |
+| 8 | Step backwards with `,` from 0:00, and forwards past the end of a short file. | Clamped at 0:00 and at the duration. Neither end throws and neither wraps. |
+| 9 | Confirm the video is paused after each step and did not start itself again. | It stays paused. A step is a look at a still frame. |
+
+Two honest limits on this section. It measures the **size of the step**, which is what the feature
+sets; it does not measure whether the engine landed on a frame boundary, because `currentTime` is a
+position in seconds and the engine decodes from whatever frame is nearest. And the fallback branch
+cannot be reached from the UI on WebView2, WKWebView or WebKitGTK, since all three deliver
+measurements; if you ever do land on an engine that does not, the symptom is step 7 — 60 presses
+everywhere.
 
 ---
 

@@ -16,6 +16,66 @@ and deleted wholesale by 75e9ab8, which replaced this file with a single v1.0.0 
 shipped with no entry at all, and none has been added since. Each section says which of the two it is
 at the top.
 
+Dr.Player v2.2.0
+
+The first release that adds a capability rather than correcting one. Three features, all of them
+about where the app is rather than what it plays, and one defect fixed that made the drawing tools
+quietly wrong.
+
+This release also ends the app having no persistent storage at all. A single JSON file in the
+per-user config directory now holds a playback position per file and the window rectangle, and it
+is the first thing this app has ever written outside its own install directory.
+
+Resume Playback
+
+Opening a video that has been watched before plays from 0:00 as it always has, and offers a single
+button reading "Continue from HH:MM:SS". Pressing it inside ten seconds seeks there and playback
+continues. Letting it lapse does nothing, and the video keeps playing from wherever it has reached,
+which is the right outcome for someone who came to watch the whole thing. The offer is not made for
+a position under five seconds, past ninety per cent of the duration, or past the duration itself,
+the last of which covers a file that has been replaced by a shorter one. Reaching the end clears
+the stored position rather than recording the final timestamp, because a finished file that keeps
+asking to be resumed is the commonest way this goes wrong.
+
+The ten seconds run from the moment the offer appears and keep running while it is hidden. Hiding
+the chrome with H takes the offer down with it, because that is the user asking for a clean screen,
+and bringing the chrome back inside the window brings the offer back. The three second passive
+auto-hide deliberately does not, or the window would be three seconds long in practice rather than
+ten.
+
+Window Size and Position
+
+The window reopens where it was left, at the size it was left. There is no minimum on the live
+resize path, because being able to make the window very small is deliberate and is not a defect to
+be corrected. Two rules apply only when the saved rectangle is read back at launch: a size below a
+small floor falls back to the default, and a rectangle that does not sit wholly inside a currently
+connected monitor is discarded in favour of a centred window.
+
+The second rule is not tidiness. This window is frameless, so one restored onto a monitor that is no
+longer attached has no titlebar to drag it back with, which is why other projects have disabled
+position restore on Windows outright rather than risk it.
+
+Frame Stepping
+
+The -1F and +1F controls moved the picture by exactly one sixtieth of a second. That is one frame
+only on a sixty frame per second source. On twenty-four, twenty-five, thirty, fifty or a hundred
+and twenty frames per second it moved a fraction of a frame or several of them, so stepping through
+to mark a shot landed between frames. The step is now measured from the source itself, using
+requestVideoFrameCallback where the engine provides it, and falls back to the old fixed step where
+it does not.
+
+This is not frame accurate seeking and is not described as such anywhere. currentTime is a position
+in seconds and the engine decodes from whatever frame is nearest; only WebCodecs promises to land
+on a frame. A variable frame rate source gets the average of what was sampled, not a per-frame
+figure.
+
+Known, and unchanged
+
+The playback position is written when the video is paused and when the window is closed through the
+window's own button. Alt+F4, the taskbar, or a crash keep whatever the last pause recorded.
+Annotations drawn in draw mode are still discarded on exit and are still not exported, which is the
+point of them.
+
 Dr.Player v2.1.1
 
 This is a correction release, not a feature release. No code changed: every fix below is in the

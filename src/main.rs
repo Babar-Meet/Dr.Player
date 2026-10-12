@@ -213,6 +213,65 @@ video {
     justify-content: center;
 }
 
+/* ==================== RESUME POSITION PROMPT ==================== */
+/* A chip over the picture, and deliberately not a dialog: no backdrop, no modal, nothing taken away
+   from the keyboard, and nothing about it stops the video, which starts at 0:00 and plays whether
+   the owner reaches for this or not. The chip is one .btn and the panel around it is a position and
+   a stacking order and nothing more: no padding, no fill, no edge, no radius, so the panel's box
+   is the button's box and the button is the whole of what is drawn. One control is one edge, and a
+   frame around a single button is a second thing on the picture to read before the one thing the
+   chip has to say.
+
+   The panel still pins it, 16 from the left and 56 up, which clears the 41 that #hud occupies along
+   the bottom and the 8px band above the bottom edge that belongs to the resize handler, so a press
+   anywhere on it cannot resize the window or reach the row.
+
+   Opaque #e00 with a #e00 edge, for the reason the rate note and the draw bar declare their
+   colours instead of washing: over an arbitrary frame there is no determinate background to read
+   against, so the fill, the label and the boundary all come from declared values. The shadow is on
+   the button rather than the panel because a shadow is the one thing here drawn outside the chip's
+   own edge, and a panel that paints nothing has no edge to draw outside of: left there it would
+   have been a shadow around nothing, and the button against the video is the one thing that needs
+   a lift.
+
+   There is one action and it is the whole of the chip, so the saved time is the label on that
+   button instead of a note beside it: "Continue from 00:12:34" says what the press will do and
+   leaves no second answer sitting next to it to be chosen against. The time is fmt(), the
+   formatter the two readouts on the bottom row already use, rather than a shorter format of its
+   own, because a number in this window is spelled one way. The button is a .btn, so it is in the
+   Tab order and takes Enter and Space with no key binding of its own, and it is the same chip with
+   the app's own red on it rather than a new colour: #fff on #e00 is 4.5:1 and #fff on the #b00 it
+   darkens to is 6.8:1, so the label holds its contrast on the way in and on the way down, which
+   the lighter red a hover usually reaches for does not. */
+.resume-panel {
+    position: fixed;
+    left: 16px;
+    bottom: 56px;
+    display: none;
+    z-index: 25;
+}
+.resume-panel.show {
+    display: block;
+}
+.resume-go {
+    background: #e00;
+    border-color: #e00;
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.55);
+}
+.resume-go:hover, .resume-go:active {
+    background: #b00;
+    border-color: #b00;
+    color: #fff;
+}
+/* The focus ring the rate field and the shortcuts panel already use, and load-bearing here rather
+   than tidy: the panel takes no focus of its own, so this one button is the only way into it, and
+   a keyboard user has to be able to see where they have landed once they are on it. */
+.resume-go:focus {
+    outline: 2px solid #e00;
+    outline-offset: 2px;
+}
+
 /* ==================== BOTTOM CHROME: ONE ROW ==================== */
 /* #hud is the one element that carries the show state and the whole row is inside it, so
    showControls and hideControls keep writing one class on one element and the chrome can never come
@@ -915,8 +974,8 @@ body.drawmode #hud {
     text-align: right;
 }
 
-/* The footer names the two dismissal routes that are not the button and not Escape, so all four
-   are discoverable from inside the panel rather than only from the keyboard. */
+/* The footer carries the way out that is not on the list itself, so the panel can be closed from
+   where the eye already is instead of only from the keyboard. */
 .keys-foot {
     flex: none;
     display: flex;
@@ -1070,6 +1129,18 @@ body.drawmode #hud {
 <div id="stage">
   <video id="v" playsinline></video>
   <canvas id="draw"></canvas>
+</div>
+
+<!-- Resume position, and it is display: none until the window tells the page this file was left
+     part-watched, which nothing in this file can decide: the saved seconds arrive from the window
+     with the video URL, and the offer itself waits for the metadata, because every one of the
+     thresholds is a comparison against the duration. Sits over the picture, takes no focus when it
+     appears (a panel that grabbed the keyboard would turn the first Space into a resume rather than
+     a pause) and stops both mousedown and keydown, for the reasons its own script gives. One
+     button and one action, with the saved time in its own label: there is no second control here to
+     press, so nothing on this chip is a way of refusing it. -->
+<div class="resume-panel" id="resume" role="group" aria-label="Resume playback">
+    <button class="btn resume-go" id="resume-go" type="button">Continue from 00:00:00</button>
 </div>
 
 <!-- Top bar -->
@@ -1571,14 +1642,18 @@ function showUI() {
     }, 3000);
 }
 // H hides the chrome and brings it back pinned
+// The chip rides the explicit toggle only, so the three second idle timer in showUI cannot take it
+// down with the chrome; see the note on hideResumeWithChrome for why the two are not the same hide.
 function toggleControls() {
     if (topbar.classList.contains('show') || hud.classList.contains('show')) {
         hudLock = true;
         hideControls();
+        hideResumeWithChrome();
     } else {
         hudLock = false;
         hudPin = true;
         showControls();
+        showResumeWithChrome();
     }
 }
 // Fill mode reshapes the WINDOW, never the picture. contain already draws the whole frame at
@@ -1636,6 +1711,7 @@ function disengageFill() {
     fillMode = false;
     document.body.classList.remove('fillmode');
     renderFillIcon();
+    window.ipc.postMessage('fill_mode:off');
 }
 function checkFillShapeLock() {
     if (!fillMode || !videoAspect) return;
@@ -1660,6 +1736,10 @@ function toggleFill() {
     fillMode = !fillMode;
     document.body.classList.toggle('fillmode', fillMode);
     renderFillIcon();
+    // Which way it went, told to the window because the window remembers this window's geometry and
+    // a shape fill mode chose for itself is the video's shape rather than a size the owner picked.
+    // Both writers of fillMode above are the only two, so this cannot disagree with the icon.
+    window.ipc.postMessage(fillMode ? 'fill_mode:on' : 'fill_mode:off');
     // Only on the way in. Turning it off leaves the window exactly where the user left it.
     if (fillMode) snapWindowToVideo();
 }
@@ -1687,10 +1767,13 @@ document.addEventListener('focusin', (e) => {
 });
 showUI();
 
+// A second explicit hide of its own rather than a caller of toggleControls, so the chip is taken
+// down and brought back here as well. The chip's call is the same one for the same reason, and
+// showUI is still what raises the chrome rather than showControls: this button does not pin.
 bhide.addEventListener('click', () => {
     hudLock = !hudLock;
-    if (hudLock) hideControls();
-    else showUI();
+    if (hudLock) { hideControls(); hideResumeWithChrome(); }
+    else { showUI(); showResumeWithChrome(); }
 });
 bfill.addEventListener('click', toggleFill);
 
@@ -1844,7 +1927,14 @@ window.addEventListener('blur', () => {
 
 /* ====================== WINDOW BUTTONS ====================== */
 document.getElementById('bmin').onclick = () => window.ipc.postMessage('minimize');
-document.getElementById('bcls').onclick = () => window.ipc.postMessage('close');
+// Where I left off is written before the close goes out, because the close is what takes the page
+// with it: this is the last moment the position is known to anything. Both messages are posted in
+// this order and the first is never dropped on account of the second, so a video quit halfway
+// through is still a video that opens offering to continue.
+document.getElementById('bcls').onclick = () => {
+    saveResumePosition();
+    window.ipc.postMessage('close');
+};
 // The one way in from the mouse, and it is the same function the bare / calls below, so the panel
 // opens and closes and takes focus identically whichever route opened it and there is no second
 // copy of any of it. A declaration, not a call site reached by name, so this line runs before the
@@ -2220,14 +2310,292 @@ volIcon.addEventListener('click', () => {
 });
 
 /* ====================== FRAME STEPPING ====================== */
-document.getElementById('bprev').onclick = () => {
+/* One frame is 1/60 of a second on a 60fps file and nothing else. Every step in this app used to be
+   that constant: two buttons here, two in the draw toolbar, and the comma and period keys firing
+   this pair. On 24fps source a press moved two fifths of a frame and on 30fps half of one, so a
+   person walking a shot down frame by frame landed between frames and marked the wrong one.
+
+   The file's own rate is measured instead. requestVideoFrameCallback is handed every frame the
+   engine presents with the media time it presented and how many frames have been presented in all,
+   so the interval between two of those is the file's frame interval, whatever it was shot at. It is
+   the one API WebView2 (Chromium 83 and up), WKWebView (Safari 15.4 and up) and current WebKitGTK
+   all carry.
+
+   Measurement falls back rather than failing, and the fallback is the old fixed step rather than a
+   second measurement. getVideoPlaybackQuality().totalVideoFrames was the obvious second source and
+   is not one: it counts the frames the element has CREATED, not the ones the engine PRESENTED, so
+   dividing elapsed media time by it does not give a frame interval. The two counters drift apart
+   whenever frames are decoded ahead of being shown, and on one variable-frame-rate clip the same
+   file measured 20.0000ms on one poll and 15.0000ms on the next. Polled every 500ms beside a
+   working requestVideoFrameCallback it was worse than that, because two measurers compete and the
+   coarser one landing last overwrites the better value. So it is not used as a measurer at all,
+   here or anywhere else in this file.
+
+   Which leaves one source and one honest fallback. Where requestVideoFrameCallback is not there,
+   or its callback never arrives because nothing is being presented, the step is
+   FRAME_INTERVAL_FALLBACK: the worst case for this feature is the behaviour it replaced, which is
+   at least right on a 60fps source, rather than a number that looks measured and is not.
+
+   What this is not, and no comment in this file should ever say otherwise: the video element is not
+   asked to seek to a frame and does not promise to land on one. currentTime is a position in
+   seconds and the engine decodes from whatever frame is nearest, so this moves by the file's own
+   frame interval and lands on the boundary it was aimed at. */
+const FRAME_INTERVAL_FALLBACK = 1 / 60;
+// The band a measurement has to land in to be used at all: below one frame in 240 or above one in
+// 10 there is no source this app will ever be handed, and a division that came out at either of
+// those ends is a bad sample rather than a rare frame rate.
+const FRAME_INTERVAL_MIN = 1 / 240;
+const FRAME_INTERVAL_MAX = 1 / 10;
+// The rates files are actually recorded at, and how close a measurement has to be to one of them to
+// be taken as that one exactly. The band is two per cent of the interval it is compared against,
+// which at 25fps is 0.0008s: a file measuring 24.99fps lands 0.000016s from 1/25 and is read as
+// exactly 1/25. Snapping is worth it because the nominal rate is the frame and the measurement is
+// the engine's rounding of it, so the exact interval is the closer of the two.
+const FRAME_RATES = [24, 25, 30, 50, 60, 120];
+const FRAME_RATE_TOLERANCE = 0.02;
+
+let frameInterval = FRAME_INTERVAL_FALLBACK;
+let frameCallbackLast = null;
+
+// A sample is only worth anything once it is inside the band above; outside it the value is dropped
+// and the one already held stays, which is the fallback if it never got started.
+function adoptFrameInterval(seconds) {
+    if (!Number.isFinite(seconds) || seconds < FRAME_INTERVAL_MIN || seconds > FRAME_INTERVAL_MAX) return;
+    for (const rate of FRAME_RATES) {
+        const exact = 1 / rate;
+        if (Math.abs(seconds - exact) <= exact * FRAME_RATE_TOLERANCE) {
+            frameInterval = exact;
+            return;
+        }
+    }
+    frameInterval = seconds;
+}
+
+// What the callback carries: mediaTime is the frame's own timestamp in seconds and presentedFrames
+// is how many frames have been shown, so their differences against the last callback's are the frame
+// interval and nothing else. Both can arrive unusable on the first frame, which is why each is
+// checked rather than the pair divided.
+function sampleFrameCallback(metadata) {
+    const media = metadata.mediaTime;
+    const frames = metadata.presentedFrames;
+    const last = frameCallbackLast;
+    frameCallbackLast = { media, frames };
+    if (!last || !Number.isFinite(media) || !Number.isFinite(frames)) return;
+    const shown = frames - last.frames;
+    const elapsed = media - last.media;
+    if (shown > 0 && elapsed > 0) adoptFrameInterval(elapsed / shown);
+}
+
+// Started once and left running: the callback re-registers itself every frame it is handed and
+// simply stops being called while nothing is presented, which is the same as having nothing to
+// measure. Where the API is absent, or it never fires, frameInterval is never written and the step
+// stays on FRAME_INTERVAL_FALLBACK — which is why there is no timer beside this one any more.
+function watchFrameRate() {
+    if (typeof vid.requestVideoFrameCallback === 'function') {
+        const onFrame = (now, metadata) => {
+            sampleFrameCallback(metadata);
+            vid.requestVideoFrameCallback(onFrame);
+        };
+        vid.requestVideoFrameCallback(onFrame);
+    }
+}
+
+// A seek is a jump in the media time the next sample is measured against, so the measurement window
+// starts over after one. The interval already measured is kept rather than reset: it belongs to the
+// file, not to where in the file the window happens to be standing.
+function forgetFrameSamples() {
+    frameCallbackLast = null;
+}
+vid.addEventListener('seeking', forgetFrameSamples);
+vid.addEventListener('loadedmetadata', () => {
+    forgetFrameSamples();
+    // A new file measures its own rate, so the last one's is not carried into it.
+    frameInterval = FRAME_INTERVAL_FALLBACK;
+});
+
+// One frame, in the direction asked for. The video is paused first, as it always was, so a step is
+// a look at a still frame rather than a jump inside a moving picture. Both ends are clamped to the
+// file the same way the two seek steps clamp, and nothing here can move past 0:00 or past the end.
+function stepFrame(dir) {
     vid.pause();
-    vid.currentTime = Math.max(0, vid.currentTime - 1 / 60);
+    const target = vid.currentTime + dir * frameInterval;
+    vid.currentTime = Math.max(0, Math.min(vid.duration || 0, target));
+}
+
+document.getElementById('bprev').onclick = () => stepFrame(-1);
+document.getElementById('bnext').onclick = () => stepFrame(1);
+watchFrameRate();
+
+/* ====================== RESUME PLAYBACK POSITION ====================== */
+/* The video starts at 0:00 and plays, exactly as it did before any of this existed. What is new is a
+   chip over the picture offering to carry on from where this file was last left, and it is an offer
+   and not a decision: the chip carries one button, so doing nothing is a complete answer on its own
+   and the ten seconds are how long that answer is left to stand. Nothing about the panel touches
+   playback.
+
+   The two thresholds are refusals, and the second one is the unusual half of this feature. Under
+   RESUME_MIN_SECONDS there is no position worth resuming to and a prompt offering four seconds is
+   noise over the opening. Past RESUME_END_FRACTION the owner has watched the thing, and somebody
+   opening it again is asking to watch it afresh: the usual "not within fifteen seconds of the end"
+   rule is the wrong tool here, because it hides the last few seconds from the person who has already
+   seen the ending, and 80 to 90 per cent is exactly the band the owner wants whole again.
+
+   Nothing is decided before the metadata lands, because all three refusals compare against the
+   duration and a file that has not reported one has nothing to compare with. A saved position
+   beyond the duration is the third refusal and it covers a file that has been replaced or truncated
+   since it was written; the window also refuses to offer one whose file is no longer the same size,
+   so a name that now belongs to different video inherits nothing.
+
+   The time in the button's label is fmt(), the formatter the two readouts on the bottom row already
+   use, rather than a shorter one of its own: a number in this window is spelled one way. */
+const RESUME_MIN_SECONDS = 5;
+const RESUME_END_FRACTION = 0.9;
+// Ten seconds, and what runs out here takes the panel away and changes nothing else. The other
+// project's version of this prompt counts down in the open and lands in the same place, and the
+// number is one that has been read rather than guessed: an offer left up longer than this stops
+// being an offer. Ten seconds is also long enough for a person who glanced at the chip and looked
+// away to read to still be within it when they came back, which is why timing out cannot be read as
+// a refusal. See the note under hideResumePanel.
+const RESUME_TIMEOUT_MS = 10000;
+// Pauses inside half a second of the last one written say nothing new, and a held frame-step key is
+// a pause every time: without this, walking along a file frame by frame would put a disk write on
+// every keypress, which is the thing the no-timeupdate rule exists to avoid.
+const RESUME_WRITE_EPSILON = 0.5;
+
+const resumePanel = document.getElementById('resume');
+const resumeGo    = document.getElementById('resume-go');
+let resumeSaved = null;
+let resumeTimer = null;
+let resumeWritten = 0;
+let resumeSuppressed = false;
+
+// Takes the chip off the screen and stops its timer, and that is the entire effect: no seek, no
+// pause, no resume_clear, nothing written. It is not a dismissal and nothing in this file treats it
+// as one, because the panel has no gesture that means no. A person who opens a long lecture, sees
+// the chip, looks away to read for thirty seconds and comes back has not turned it down, and a
+// timeout that fired while they were away is not a decision they made — it is the absence of one,
+// which is why the stored position stays and the video is left exactly where it was playing.
+//
+// It also drops the suppression flag, which is what makes this the end of the offer on every path
+// that reaches it: the timer answering, the button being pressed, the picture being clicked. Each
+// of those has decided the chip is finished, and an unhide afterwards must not read that as the
+// chip having been taken away and put it back.
+function hideResumePanel() {
+    clearTimeout(resumeTimer);
+    resumeTimer = null;
+    resumeSuppressed = false;
+    resumePanel.classList.remove('show');
+}
+
+// The chip going down with the chrome, and the one hiding of it in this file that is not the end of
+// the offer. It hangs on the explicit hide and nothing else — H, and the eye button, which is a
+// second toggle of its own and not a caller of that one — and deliberately not on hideControls,
+// because hideControls also runs on the three second idle timer. Hiding the chip there would cut a
+// ten second window down to three and the offer would be a flash rather than something to read.
+// Someone who pressed H asked for a clean screen, not to be told their place was gone, so the chip
+// is still theirs to have back.
+//
+// The timer is left running on purpose, and that is the owner's instruction rather than a detail.
+// The ten seconds are counted from the moment the chip appeared, so four seconds of hidden chrome
+// buys four seconds less reading time and not four more: a chip still down after the tenth second
+// has expired and stays down for good. The flag is only set when the chip was actually up, so an
+// offer that has not been made yet is never marked as one that was taken away.
+function hideResumeWithChrome() {
+    if (!resumePanel.classList.contains('show')) return;
+    resumePanel.classList.remove('show');
+    resumeSuppressed = true;
+}
+
+// The other half of that, on the explicit unhide and from nowhere else. A null timer is a window
+// that has closed, and hideResumePanel clears the flag on every path that closes one, so this cannot
+// put back a chip whose ten seconds were already up no matter how long the chrome stayed down.
+//
+// showUI is kept out of this path even though it runs on every mouse move and every key and is what
+// brings the chrome back. Wiring it in there would raise the chip over a screen the owner had just
+// cleaned because the pointer moved a centimetre, which is exactly the thing the explicit toggle
+// exists to distinguish. Leaving it out is what makes the chip an answer to the toggle rather than
+// an answer to activity.
+function showResumeWithChrome() {
+    if (!resumeSuppressed) return;
+    resumeSuppressed = false;
+    if (resumeTimer === null) return;
+    resumePanel.classList.add('show');
+}
+
+// The one decision, and it happens again from both sides: the metadata can land before the window
+// has answered and the window's answer can land before the metadata, so whichever arrives second is
+// what puts the panel up. One offer per file is all there is.
+function maybeOfferResume() {
+    if (!resumeSaved || resumePanel.classList.contains('show')) return;
+    const duration = vid.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    if (resumeSaved < RESUME_MIN_SECONDS) return;
+    if (resumeSaved > duration) return;
+    if (resumeSaved > duration * RESUME_END_FRACTION) return;
+    resumeGo.textContent = 'Continue from ' + fmt(resumeSaved);
+    resumePanel.classList.add('show');
+    resumeTimer = setTimeout(hideResumePanel, RESUME_TIMEOUT_MS);
+}
+
+// The window's answer to whether this file was left part-watched. It arrives with the video URL on
+// DOMContentLoaded and is a number or null; nothing here can ask for it and nothing asks twice.
+window.setResumePosition = (seconds) => {
+    resumeSaved = typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+    maybeOfferResume();
 };
-document.getElementById('bnext').onclick = () => {
-    vid.pause();
-    vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 1 / 60);
-};
+
+// Written on pause, on close and nowhere else. timeupdate fires several times a second and writing
+// on it would mean constant disk writes; a pause is a decision, and a close is the end of the file's
+// turn. One thing refuses it outright, and it is a refusal of the offer rather than of the writing:
+// a video on repeat is not a "where I left off" moment, and the loop toggle is off at every launch,
+// so the only way to get here with one on is to turn it on. Nothing else is gated on the offer,
+// because there is no gesture left that means no — with the chip gone down to one button, the only
+// path in this page that clears storage is the ended handler below, and that one is the file
+// finishing rather than a person declining.
+function saveResumePosition() {
+    if (loopEnabled) return;
+    const t = vid.currentTime;
+    if (!Number.isFinite(t) || t <= 0) return;
+    if (Math.abs(t - resumeWritten) < RESUME_WRITE_EPSILON) return;
+    resumeWritten = t;
+    window.ipc.postMessage(`resume_save:${t}`);
+}
+
+resumeGo.addEventListener('click', () => {
+    const target = resumeSaved;
+    hideResumePanel();
+    if (!target) return;
+    // Playback is never stopped, so there is nothing to start again: this only moves the picture,
+    // and the position stays stored because it is still where the video is.
+    vid.currentTime = Math.min(Math.max(0, target), vid.duration || target);
+});
+// The other way the chip goes away without being answered, and it behaves exactly like the timeout:
+// hide, and change nothing else. A press on the picture means this person is watching, not that they
+// have been asked and said no, so it neither seeks to 0:00 nor clears what is stored, and there is no
+// other gesture in this file that means no for it to be mistaken for.
+// Escape is not a third way out and is not made one here: it does one thing in this app, which is
+// ask the window to leave fullscreen, and it never touches the controls.
+document.getElementById('stage').addEventListener('click', hideResumePanel);
+// Both stops are the same two the rate field and the text dialog already make, for the reasons they
+// give. The keydown one is what keeps Space on the focused Continue from resuming and toggling
+// playback at once, and what keeps an arrow key aimed at the panel from seeking; the mousedown one
+// keeps a press on it from reaching the edge handler or, with the chrome hidden, the window drag.
+resumePanel.addEventListener('keydown', (e) => e.stopPropagation());
+resumePanel.addEventListener('mousedown', (e) => e.stopPropagation());
+
+vid.addEventListener('loadedmetadata', maybeOfferResume);
+vid.addEventListener('pause', saveResumePosition);
+vid.addEventListener('ended', () => {
+    // Watched to the end is not a place to come back from, so what was stored goes rather than being
+    // kept at the final second: a finished file that keeps asking to be resumed is the commonest way
+    // this goes wrong. A looping one has not finished at all and keeps nothing either. This is the
+    // one and only path that clears storage now that there is no gesture for refusing the offer,
+    // which is the right shape for it: the file finishing is a fact about the file, and it is the
+    // only answer in this feature that somebody is not answering for themselves.
+    if (loopEnabled) return;
+    resumeWritten = 0;
+    window.ipc.postMessage('resume_clear');
+});
 
 document.getElementById('bplay').onclick = () => {
     vid.paused ? vid.play() : vid.pause();
@@ -2765,9 +3133,7 @@ document.querySelectorAll('.dseek').forEach(btn => {
 
 document.querySelectorAll('.dstep').forEach(btn => {
     btn.addEventListener('click', () => {
-        const dir = parseInt(btn.dataset.dir);
-        vid.pause();
-        vid.currentTime = Math.max(0, Math.min(vid.duration || 0, vid.currentTime + dir / 60));
+        stepFrame(parseInt(btn.dataset.dir));
     });
 });
 
@@ -2856,7 +3222,7 @@ window.setTitle  = name => { document.getElementById('title').textContent = name
 
 use clap::Parser;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -2896,6 +3262,321 @@ fn is_postable_size(w: f64, h: f64) -> bool {
 fn push_fullscreen_state(window: &Window, webview: &wry::WebView) {
     let state = window.fullscreen().is_some();
     let _ = webview.evaluate_script(&format!("window.setFullscreenState({});", state));
+}
+
+// ==================== WHAT THE APP REMEMBERS ====================
+// Two things, in one file: where this window was left, and where playback was left in each file
+// that has been watched and not finished. One file rather than two because there is one helper
+// below and both of them go through it, and a second format would be a second thing to keep
+// tolerant of a half-written copy.
+//
+// It lives in the config directory of the user running it and nowhere else. The install directory
+// is owned by the installer and can be read-only, and a file the app cannot write is a file the
+// app does not keep. The path is worked out by hand rather than through a directory crate because
+// this program adds no dependency for anything, and these three are the three the platform
+// directories are: %APPDATA% on Windows, ~/Library/Application Support on macOS, and
+// $XDG_CONFIG_HOME or ~/.config on Linux.
+const STATE_FOLDER: &str = "Dr.Player";
+const STATE_FILE: &str = "state.json";
+// How many files keep a position. A player that opens a new file every few minutes would otherwise
+// write this file for the rest of its life, and the oldest entries are the ones nobody is coming
+// back for.
+const MAX_SAVED_POSITIONS: usize = 200;
+
+fn state_path() -> Option<PathBuf> {
+    let base = if cfg!(target_os = "windows") {
+        PathBuf::from(std::env::var_os("APPDATA")?)
+    } else if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME")?)
+            .join("Library")
+            .join("Application Support")
+    } else {
+        match std::env::var_os("XDG_CONFIG_HOME") {
+            Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+            _ => PathBuf::from(std::env::var_os("HOME")?).join(".config"),
+        }
+    };
+    Some(base.join(STATE_FOLDER).join(STATE_FILE))
+}
+
+// Logical pixels throughout, deliberately: a size or an offset remembered in physical pixels lands
+// at the wrong size in the wrong place as soon as the display's scale changes, which is exactly the
+// time a saved window is read.
+#[derive(Clone, Copy)]
+struct WindowRect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+// Read once, at launch. Every way this can go wrong answers the same thing, which is nothing
+// remembered: no file yet, a file that will not open, a file that is not JSON, a file that is JSON
+// but not an object, and a file that is an object with none of the numbers in it. None of them is a
+// reason not to open, and none of them is anything the owner did wrong, so none of them is said.
+fn read_state() -> (
+    Option<WindowRect>,
+    serde_json::Map<String, serde_json::Value>,
+) {
+    let empty = serde_json::Map::new();
+    let Some(path) = state_path() else {
+        return (None, empty);
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (None, empty);
+    };
+    let Ok(serde_json::Value::Object(root)) = serde_json::from_str::<serde_json::Value>(&text)
+    else {
+        return (None, empty);
+    };
+    let rect = root.get("window").and_then(remembered_rect);
+    let positions = match root.get("positions") {
+        Some(serde_json::Value::Object(map)) => map.clone(),
+        _ => serde_json::Map::new(),
+    };
+    (rect, positions)
+}
+
+// All four or none: a rectangle missing a side is not a rectangle, and half of one is a position.
+fn remembered_rect(value: &serde_json::Value) -> Option<WindowRect> {
+    let side = |key: &str| value.get(key).and_then(serde_json::Value::as_f64);
+    let (Some(w), Some(h), Some(x), Some(y)) = (side("w"), side("h"), side("x"), side("y")) else {
+        return None;
+    };
+    if !w.is_finite() || !h.is_finite() || !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some(WindowRect { x, y, w, h })
+}
+
+// The whole file, from whatever is remembered now, and nothing else in it. Every failure is silent
+// on purpose and none of them can end the app: a state file the user cannot write to, a disk that
+// is full, a directory that will not be created. The one thing worth doing about any of those is
+// carry on as though nothing had been remembered, which is what the next launch does anyway.
+fn write_state(rect: Option<WindowRect>, positions: &serde_json::Map<String, serde_json::Value>) {
+    let Some(path) = state_path() else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+    }
+    let mut root = serde_json::Map::new();
+    if let Some(rect) = rect {
+        root.insert(
+            "window".to_string(),
+            serde_json::json!({ "x": rect.x, "y": rect.y, "w": rect.w, "h": rect.h }),
+        );
+    }
+    if !positions.is_empty() {
+        root.insert(
+            "positions".to_string(),
+            serde_json::Value::Object(positions.clone()),
+        );
+    }
+    let Ok(text) = serde_json::to_string_pretty(&root) else {
+        return;
+    };
+    // Written beside itself and renamed over it. A write cut short by a kill or a full disk then
+    // leaves the previous file whole rather than half of a new one, and read_state answers a half
+    // file the same way it answers a missing one anyway. This is belt and braces, not the reason
+    // that half a file is survivable.
+    let staged = path.with_extension("json.new");
+    if std::fs::write(&staged, text).is_err() {
+        return;
+    }
+    let _ = std::fs::rename(staged, path);
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
+// The position this file was left at, and None for every reason it should not be offered: no entry,
+// an entry written for a different file that now answers to the same path, a position that is not a
+// number, and a position of zero. The size is the cheap identity a canonical path cannot give, and
+// it is compared only when both sides know theirs: a file that cannot be measured is not refused for
+// that, it is the one case where a stored position is still worth trusting.
+fn remembered_position(
+    positions: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    size: Option<u64>,
+) -> Option<f64> {
+    let entry = positions.get(key)?;
+    if let (Some(stored), Some(current)) =
+        (entry.get("size").and_then(serde_json::Value::as_u64), size)
+    {
+        if stored != current {
+            return None;
+        }
+    }
+    let seconds = entry.get("t").and_then(serde_json::Value::as_f64)?;
+    if seconds.is_finite() && seconds > 0.0 {
+        Some(seconds)
+    } else {
+        None
+    }
+}
+
+// One file's position, and the cap that keeps the map a map. Eviction is oldest-first by the stamp
+// written here, because a JSON object has no order of its own to evict in and alphabetical order is
+// not the same thing as how long ago a file was watched.
+fn remember_position(
+    positions: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    seconds: f64,
+    size: Option<u64>,
+) {
+    let mut entry = serde_json::Map::new();
+    entry.insert("t".to_string(), serde_json::json!(seconds));
+    if let Some(size) = size {
+        entry.insert("size".to_string(), serde_json::json!(size));
+    }
+    entry.insert("at".to_string(), serde_json::json!(unix_seconds()));
+    positions.insert(key.to_string(), serde_json::Value::Object(entry));
+    while positions.len() > MAX_SAVED_POSITIONS {
+        let oldest = positions
+            .iter()
+            .min_by_key(|(_, entry)| entry.get("at").and_then(serde_json::Value::as_u64))
+            .map(|(key, _)| key.clone());
+        match oldest {
+            Some(key) => {
+                positions.remove(&key);
+            }
+            None => break,
+        }
+    }
+}
+
+// The size a remembered window opens at. A window may be dragged to any size at all and a very small
+// one is a deliberate substitute for picture-in-picture, so nothing in the live resize path is
+// touched; this floor is checked once, on the way back in, and its only job is that a window
+// restored below it would be too small to see and grab. 200 by 120 is the smallest shape that still
+// holds a 48px top bar and a 41px bottom row without the two overlapping, which is the chrome this
+// window has no other way to be moved or resized by.
+const MIN_RESTORED_WIDTH: f64 = 200.0;
+const MIN_RESTORED_HEIGHT: f64 = 120.0;
+const DEFAULT_WINDOW_WIDTH: f64 = 1280.0;
+const DEFAULT_WINDOW_HEIGHT: f64 = 720.0;
+
+// The window as it is now, in logical pixels. Nothing is written while fill mode is shaping the
+// window, because a shape fill mode chose is the video's shape rather than a size the owner picked,
+// and nothing is written while the window is fullscreen, because then the window's size is the
+// monitor's. Both refusals keep what is already on file saying what the window looked like when it
+// was the owner's own, which is what the next launch has to open.
+fn remember_geometry(window: &Window, fill_mode: bool) -> Option<WindowRect> {
+    if fill_mode || window.fullscreen().is_some() {
+        return None;
+    }
+    let scale = window.scale_factor();
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    let size = window.inner_size();
+    let position = window.outer_position().ok()?;
+    let rect = WindowRect {
+        w: size.width as f64 / scale,
+        h: size.height as f64 / scale,
+        x: position.x as f64 / scale,
+        y: position.y as f64 / scale,
+    };
+    if is_postable_size(rect.w, rect.h) {
+        Some(rect)
+    } else {
+        None
+    }
+}
+
+// Whether a rectangle lands somewhere the owner could find it: entirely inside one monitor that is
+// plugged in now. tao 0.28 reports each monitor's position and size in the same physical pixels the
+// window's own position is reported in and relative to the same origin, which is the top-left of the
+// desktop rather than of any one screen, so the two are compared as they stand. What is compared is
+// the monitor rectangle and not the work area: tao 0.28's MonitorHandle exposes no work area, and a
+// window a few pixels under a taskbar is still a window that can be seen and grabbed, which is the
+// whole of what this guard is for.
+fn rect_fits_a_monitor(window: &Window, rect: WindowRect, scale: f64) -> bool {
+    let left = rect.x * scale;
+    let top = rect.y * scale;
+    let right = left + rect.w * scale;
+    let bottom = top + rect.h * scale;
+    window.available_monitors().any(|monitor| {
+        let origin = monitor.position();
+        let size = monitor.size();
+        let monitor_left = origin.x as f64;
+        let monitor_top = origin.y as f64;
+        left >= monitor_left
+            && top >= monitor_top
+            && right <= monitor_left + size.width as f64
+            && bottom <= monitor_top + size.height as f64
+    })
+}
+
+// Where the window opens. The remembered rectangle wins when it fits a monitor that is there now;
+// otherwise the position is dropped and the window opens centred on the primary monitor, aligned to
+// its top-left corner when it is bigger than that monitor so it cannot land half off the screen.
+// Either way this is the size chosen above that is kept. A frameless window restored onto a monitor
+// that is no longer connected has no title bar to go looking for, which is why some programs will
+// not restore a position at all on Windows; this app keeps its position and checks it instead.
+fn restore_position(window: &Window, saved: Option<WindowRect>, width: f64, height: f64) {
+    let Some(saved) = saved else {
+        return;
+    };
+    let landing = WindowRect {
+        w: width,
+        h: height,
+        x: saved.x,
+        y: saved.y,
+    };
+    if rect_fits_a_monitor(window, landing, window.scale_factor()) {
+        window.set_outer_position(tao::dpi::LogicalPosition::new(saved.x, saved.y));
+        return;
+    }
+    let Some(monitor) = window.primary_monitor() else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let origin = monitor.position();
+    let monitor_size = monitor.size();
+    let monitor_width = monitor_size.width as f64;
+    let monitor_height = monitor_size.height as f64;
+    let x = if landing.w * scale <= monitor_width {
+        origin.x as f64 + (monitor_width - landing.w * scale) / 2.0
+    } else {
+        origin.x as f64
+    };
+    let y = if landing.h * scale <= monitor_height {
+        origin.y as f64 + (monitor_height - landing.h * scale) / 2.0
+    } else {
+        origin.y as f64
+    };
+    window.set_outer_position(tao::dpi::LogicalPosition::new(x / scale, y / scale));
+}
+
+// How long the window has to stop moving before its geometry is written. A drag and a fill-mode
+// resize both arrive as one Resized and one Moved per frame of the gesture, so writing on each of
+// them would put a disk write inside the drag; the event loop waits for this instead of the other
+// way round. Nothing waits on the deadline and nothing in the window depends on it having fired,
+// because the same geometry is written again on the way out.
+const GEOMETRY_SETTLE: Duration = Duration::from_millis(500);
+
+// The last write of the session, on both exit routes. A shape fill mode is driving, or the window is
+// fullscreen, and the geometry on file is better than either of those, so what is remembered stays as
+// it is; the positions are written either way because the last thing the page did was say where
+// playback was, and this is the moment it is worth having said.
+fn save_state_on_exit(
+    window: &Window,
+    rect: &mut Option<WindowRect>,
+    positions: &serde_json::Map<String, serde_json::Value>,
+    fill_mode: bool,
+) {
+    if let Some(remembered) = remember_geometry(window, fill_mode) {
+        *rect = Some(remembered);
+    }
+    write_state(*rect, positions);
 }
 
 // Where the answer comes from, and the one address the shell is ever asked to open. Both are
@@ -3116,20 +3797,52 @@ async fn main() -> wry::Result<()> {
 
     let app_icon = load_icon(include_bytes!("../resources/icon.ico"));
 
+    // What was remembered, read once and then carried by the event loop below. The size it was left
+    // at is used only if it passes the same is_postable_size test a posted resize passes, and is at
+    // or above the floor; anything else opens at the default instead. The is_postable_size half is
+    // the untrusted half: these numbers come out of a file on disk that a text editor or a bad write
+    // can put anything in, and a size that is not a size has no business reaching the window. It is
+    // the same rule the live resize path uses rather than a second one, and the floor is checked
+    // after it rather than instead of it. Nothing in the live path is limited by either: a very small
+    // window stays a thing the owner can make, because this guard runs once on the way back in and
+    // never on a drag. The position is checked separately below, against the monitors connected now.
+    let (mut remembered_rect, mut positions) = read_state();
+    let file_size = std::fs::metadata(&path).ok().map(|meta| meta.len());
+    let position_key = path.to_string_lossy().into_owned();
+    let (inner_width, inner_height) = match remembered_rect {
+        Some(rect)
+            if is_postable_size(rect.w, rect.h)
+                && rect.w >= MIN_RESTORED_WIDTH
+                && rect.h >= MIN_RESTORED_HEIGHT =>
+        {
+            (rect.w, rect.h)
+        }
+        _ => (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT),
+    };
+
     let window = WindowBuilder::new()
         .with_title("Dr.Player")
         .with_window_icon(app_icon)
         .with_decorations(false)
         .with_resizable(true)
-        .with_inner_size(tao::dpi::LogicalSize::new(1280.0, 720.0))
+        .with_inner_size(tao::dpi::LogicalSize::new(inner_width, inner_height))
         .build(&event_loop)
         .unwrap();
 
+    restore_position(&window, remembered_rect, inner_width, inner_height);
+
     let safe_url = serde_json::to_string(&file_url).unwrap();
     let safe_title = serde_json::to_string(&filename).unwrap();
+    // Where this file was left, if it was left anywhere worth going back to. null is the common
+    // answer and the page puts no panel up for it. Serialized rather than formatted into the script
+    // as a literal, so this goes through the same escaping as the URL and the title.
+    let safe_resume = match remembered_position(&positions, &position_key, file_size) {
+        Some(seconds) => serde_json::to_string(&seconds).unwrap_or_else(|_| "null".to_string()),
+        None => "null".to_string(),
+    };
     let init_script = format!(
-        "window.addEventListener('DOMContentLoaded',function(){{window.loadVideo({});window.setTitle({});}});",
-        safe_url, safe_title
+        "window.addEventListener('DOMContentLoaded',function(){{window.loadVideo({});window.setTitle({});window.setResumePosition({});}});",
+        safe_url, safe_title, safe_resume
     );
     // The update prompt's hook, installed as an initialization script so that it exists before any
     // page script does. The request below is fired once the window is up, and an answer can arrive
@@ -3171,17 +3884,43 @@ async fn main() -> wry::Result<()> {
         });
     }
 
+    // The settle timer is the only thing this loop ever waits on, and it is None almost always.
+    let mut geometry_due: Option<Instant> = None;
+    // Told by the page, because only the page knows: a fill-mode shape is the video's and not the
+    // owner's, so nothing about the window's size is remembered while one is on its way.
+    let mut fill_mode = false;
+
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-        match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                *control_flow = ControlFlow::Exit;
+        if let Some(due) = geometry_due {
+            if Instant::now() >= due {
+                geometry_due = None;
+                if let Some(remembered) = remember_geometry(&window, fill_mode) {
+                    remembered_rect = Some(remembered);
+                    write_state(remembered_rect, &positions);
+                }
             }
+        }
+        *control_flow = match geometry_due {
+            Some(due) => ControlFlow::WaitUntil(due),
+            None => ControlFlow::Wait,
+        };
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => {
+                    save_state_on_exit(&window, &mut remembered_rect, &positions, fill_mode);
+                    *control_flow = ControlFlow::Exit;
+                }
+                // Both arrive once per frame of a gesture, so all they do is push the deadline out.
+                // Nothing is written until the window has been still for GEOMETRY_SETTLE, and
+                // nothing at all is written while fill mode is driving the shape.
+                WindowEvent::Resized(_) | WindowEvent::Moved(_) if !fill_mode => {
+                    geometry_due = Some(Instant::now() + GEOMETRY_SETTLE);
+                }
+                _ => {}
+            },
             Event::UserEvent(msg) => {
                 if msg == "close" {
+                    save_state_on_exit(&window, &mut remembered_rect, &positions, fill_mode);
                     *control_flow = ControlFlow::Exit;
                 } else if msg == "minimize" {
                     window.set_minimized(true);
@@ -3203,6 +3942,24 @@ async fn main() -> wry::Result<()> {
                 } else if msg == "open_release_page" {
                     // The shell, never the webview: the video stays exactly where it is.
                     open_in_default_browser(RELEASES_PAGE);
+                } else if msg == "fill_mode:on" {
+                    fill_mode = true;
+                } else if msg == "fill_mode:off" {
+                    fill_mode = false;
+                } else if let Some(seconds) = msg.strip_prefix("resume_save:") {
+                    // Written the moment the page says where playback is, which is on a pause, on the
+                    // close and nowhere else. A number that is not one, or is not past the start, is
+                    // dropped rather than stored: it would be a position no panel could ever offer.
+                    if let Ok(seconds) = seconds.parse::<f64>() {
+                        if seconds.is_finite() && seconds > 0.0 {
+                            remember_position(&mut positions, &position_key, seconds, file_size);
+                            write_state(remembered_rect, &positions);
+                        }
+                    }
+                } else if msg == "resume_clear" {
+                    if positions.remove(&position_key).is_some() {
+                        write_state(remembered_rect, &positions);
+                    }
                 } else if msg.starts_with("resize:") {
                     let parts: Vec<&str> = msg.split(':').collect();
                     if parts.len() == 3 {
