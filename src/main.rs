@@ -40,7 +40,12 @@ video {
     padding: 0 16px;
     z-index: 20;
     opacity: 0;
-    transition: opacity 0.25s;
+    /* visibility is in this list and not only opacity, and it is here rather than on the one rule
+       that hides this bar for a hold because the base rule is the only state that still has to fade
+       back IN: an untransitioned property is a step, so leaving it out would mean the fade out was
+       honoured and the fade in was not, or the other way round, and the one that is a step is the
+       one a person would notice as the bar popping in. */
+    transition: opacity 0.25s, visibility 0.25s;
     pointer-events: none;
 }
 #topbar.show {
@@ -213,6 +218,371 @@ video {
     justify-content: center;
 }
 
+/* ==================== TEMPORARY SPEED: BADGE AND PANEL ==================== */
+/* One chip and one panel, and the chip is the seventh item in .winctrl rather than a thing of its
+   own, because it is the same control the other six are and nothing about it earns a different row:
+   the same 28 of height, the same #303036 fill, the same #5a5a63 edge, the same #3a3a41 hover and
+   the same 0.15s, all of them inherited from .wbtn and none of them restated here. It sits
+   immediately after the question mark because that button is the one that says what the keys are,
+   and a chip that only means anything to somebody who already knows Space is a key belongs beside
+   it and nowhere else on this bar.
+
+   It rides the 600px switch below with the update prompt rather than carrying a switch of its own,
+   so every threshold on this bar stays exactly where it is and no existing button moves. Above the
+   switch it is 60 more of fixed width than nothing, which is the same trade the prompt above
+   already makes and the same trade the caption's own overflow and ellipsis exist for. Below the
+   switch it is out of the row entirely and the hold still works, because Space reads this speed
+   from script and never from the chip: the chip is how the speed is chosen, not how it is applied.
+
+   A pill and not another 28 circle, and that is the one thing here that is not copied from .wbtn.
+   Four characters do not fit inside a circle, which is the whole reason the update prompt above is
+   28 tall with a 7 radius and a word in it. The radius is 14 rather than 7 because 14 is half of
+   28, and a 50% radius on a box wider than it is tall is the ellipse the .winctrl flex: none note
+   describes at line 83. min-width 52 is the widest label this control can be given on its own
+   terms: "2.5x" is four characters at the 12px the prompt uses, about 6.7 each, so 27 of text,
+   9 of padding a side and 1 of border a side, which is 47, and 52 is that plus the few pixels
+   another machine's font metrics are worth. Every label the slider can produce is inside that
+   floor, so none of them can move the chip, and that is the whole reason for the floor: a badge
+   that resized as its digits changed would nudge the buttons on its left every time a hold began.
+
+   position: relative is this button's own line and it is load-bearing rather than tidiness.
+   .winctrl is a static box, so an absolutely positioned panel with no positioned ancestor is
+   placed against #topbar and comes out under the wrong control entirely. Anchored to the badge it
+   lines its right edge up with the badge's own, so the two read as one control rather than as
+   something that opened over there. */
+.fast-anchor {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+#bfast {
+    position: relative;
+    width: auto;
+    min-width: 52px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 14px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #303036;
+    border: 1px solid #5a5a63;
+    color: #e8e8ea;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+#bfast:hover {
+    background: #3a3a41;
+    border-color: #6b6b74;
+    color: #ffffff;
+}
+#bfast[aria-expanded="true"] {
+    background: #44444e;
+    border-color: #8a8a96;
+    color: #ffffff;
+}
+
+/* Apple-style Premium Dark Glassmorphic Speed Control Panel */
+.fast-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    width: 224px;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+    scrollbar-width: none;
+    padding: 14px 16px;
+    background: rgba(20, 20, 26, 0.94);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    color: #e8e8ea;
+    font-size: 12px;
+    text-align: left;
+    pointer-events: auto;
+    transform-origin: top right;
+    animation: fastPanelIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes fastPanelIn {
+    0% {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.97);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+.fast-panel::-webkit-scrollbar {
+    display: none;
+}
+.fast-panel.open {
+    display: flex;
+}
+
+/* Header */
+.fast-panel-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.fast-panel-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    line-height: 1.2;
+}
+.fast-panel-sub {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.3;
+}
+
+/* Speed Value Input (Full Row Apple Glassmorphic Card) */
+.fast-input-row {
+    width: 100%;
+    height: 38px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    gap: 4px;
+    box-sizing: border-box;
+    transition: all 0.15s ease;
+}
+.fast-input-row:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+.fast-input-row:focus-within {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+.fast-input {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: transparent;
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 600;
+    text-align: center;
+    font-family: 'SF Mono', 'Consolas', -apple-system, BlinkMacSystemFont, monospace;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+    padding: 0;
+    margin: 0;
+}
+.fast-value-unit {
+    font-size: 15px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.55);
+    user-select: none;
+    pointer-events: none;
+}
+
+/* Slider Section */
+.fast-slider-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.fast-slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 500;
+    padding: 0 1px;
+}
+.fast-slider-center {
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 9.5px;
+}
+.fast-slider-track-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 16px;
+}
+.fast-slider {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    margin: 0;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.15s ease;
+}
+.fast-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: transparent;
+}
+.fast-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+    transition: transform 0.12s ease;
+}
+.fast-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+
+/* Quick Presets Section */
+.fast-presets-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 2px;
+}
+.fast-presets-label {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+}
+.fast-presets {
+    display: flex;
+    gap: 5px;
+}
+.fast-preset {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 26px;
+    padding: 0;
+    border-radius: 7px;
+    font-size: 11.5px;
+    font-weight: 500;
+    background: #303036;
+    border: 1px solid #5a5a63;
+    color: #e8e8ea;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.fast-preset:hover {
+    background: #3a3a41;
+    border-color: #6b6b74;
+    color: #ffffff;
+}
+.fast-preset.sel {
+    background: rgba(255, 255, 255, 0.24);
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* ==================== TEMPORARY SPEED: YOUTUBE-STYLE SPEED PILL ==================== */
+.fast-pill {
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%) scale(0.92);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    background: rgba(18, 18, 22, 0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    transition: opacity 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0.12s;
+}
+.fast-pill.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) scale(1);
+}
+.fast-pill-label {
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+/* ==================== WHAT A HOLD DOES TO THE CHROME ==================== */
+/* This feature's own flag on the body, and deliberately NOT hudLock. hudLock is a person having
+   pressed H because they want a clean screen, and a hold is not that: they are different claims with
+   different owners. Writing a hold into hudLock would make the hold the author of the owner's
+   decision, and clearing it on the way out would silently spend an H they pressed back on them.
+   Worse, it breaks the case that matters most: a hold begun while H is already on would clear a lock
+   the hold never set, and the chrome would come back up over somebody who had asked for it not to.
+
+   So the hold neither reads hudLock nor writes it, in either direction. An H pressed while a key is
+   down still toggles hudLock exactly as it would otherwise; it simply has nothing to show for it
+   until the key comes up, and then the state it set is the state on screen. That is the difference
+   between being swallowed and merely unseen, and only one of them is a bug.
+
+   hudPin is not spent either, for the same reason and one more: it is the show/hide system's own
+   bookkeeping about the three second timer, meaning raised by a key or a pointer and not yet given
+   back, and it is not a switch a change of playback speed has any business turning.
+
+   The class is the thing that matters, and it is the same shape as body.drawmode and body.fillmode
+   around it, which is what makes "the chrome is out of the way" a fact about the tree rather than a
+   thing a reader has to remember. showUI reads the class and not the fastActive variable, for a
+   reason that is about this file rather than about the feature: showUI runs on the very first line
+   of the chrome block, long before the temporary speed block below has been parsed, and a let
+   declared there would still be in its temporal dead zone at that call. A class has no such edge.
+
+   The three properties are body.drawmode's, with visibility in place of its display: none, and the
+   difference is the fade. display: none is right for draw mode, which is a mode the owner stays in;
+   a hold lasts a moment and the chrome coming back is the point, so opacity is what carries the
+   0.25s both bars already declare for it. visibility rides along so a bar that has faded out is out
+   of the tab order and out of the accessibility tree as well as off the screen, which opacity alone
+   does not do, and pointer-events so the quarter of a second it spends leaving cannot swallow a
+   press meant for the picture. All three are !important for the reason the drawmode rule is: the
+   guarantee that a hold can always put the chrome back has to not depend on a reader working out
+   which declaration wins. */
+body.fastmode #topbar,
+body.fastmode #hud,
+body.fastmode .fast-panel {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
 /* ==================== RESUME POSITION PROMPT ==================== */
 /* A chip over the picture, and deliberately not a dialog: no backdrop, no modal, nothing taken away
    from the keyboard, and nothing about it stops the video, which starts at 0:00 and plays whether
@@ -284,7 +654,10 @@ video {
     inset: 0;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.25s;
+    /* visibility for the same reason and with the same consequence as the top bar's: it is what
+       takes a faded-out bar out of the tab order and out of the accessibility tree, and it only
+       fades if it is in the transition list. */
+    transition: opacity 0.25s, visibility 0.25s;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -513,7 +886,15 @@ video {
 
    user-select text is here because html, body carry user-select: none, which would make the field's
    own contents unselectable and so impossible to edit by hand. SC 1.4.11 has to reach 3:1 for the
-   focus indicator and #e00 on this field's own #1c1c20 is 4.1:1. */
+   focus indicator and #e00 on this field's own #1c1c20 is 4.1:1.
+
+   This class is not only the bottom row's field. The temporary speed panel's big value takes it too,
+   and it takes it rather than a field of its own so the fill, the edge, the monospace, the centring
+   and the focus border are one declaration rather than two that have to be kept in step. What that
+   block overrides is only its own size: the width, because the 6ch floor above exists to stop the
+   bottom row's layout moving as the digits change and that block has no row to move, and the height,
+   padding, radius and font size, because it is the panel's big value rather than a readout in a
+   41px row. Nothing about what the field looks like is decided twice. */
 .rate-input {
     width: 6ch;
     min-width: 6ch;
@@ -1071,13 +1452,22 @@ body.drawmode #hud {
    the bar it was: the prompt goes with the caption, the 132px rule below is untouched by it, and
    nothing is measured twice. Above 600 it costs what its own comment gives, 97 plus the 10 it stands
    off the caption, which is 107 on top of the 240 above, so 347 rather than 240 is the fixed cost
-   up here and 347 on the 0.4 the caption does not claim is 868: that, not 600, is the width at which
-   the caption is given its whole 60% again. Between 600 and 868 it is up to 107 narrower than it
-   was, which is the trade its own overflow and ellipsis exist for, and dismissing the prompt hands
-   every one of those pixels back, because a display: none item is out of the row and the flex line
-   is laid out again without it. */
+   up here and 347 on the 0.4 the caption does not claim is 868: that, not 600, is the width at
+   which the caption is given its whole 60% again. Between 600 and 868 it is up to 107 narrower
+   than it was, which is the trade its own overflow and ellipsis exist for, and dismissing the
+   prompt hands every one of those pixels back, because a display: none item is out of the row and
+   the flex line is laid out again without it.
+
+   The temporary speed chip rides this rule as well, and for the same reason and on the same
+   grounds: it is a seventh item on this same row of this same arithmetic, and a display: none item
+   costs the row nothing above the switch and is out of it below, so neither threshold moves and no
+   existing button loses a pixel. Above the switch it is 60 of fixed width, which is the same trade
+   the prompt above is already paying and the same one the caption's ellipsis is already standing
+   ready for. Below the switch it is gone and the hold it sets up still works, because Space reads
+   that speed from script and never from the chip: the chip is how the speed is chosen, not how it
+   is applied. */
 @media (max-width: 600px) {
-    .title-capsule, #update-pill, #bhide, #bfill, #bmin { display: none; }
+    .title-capsule, #update-pill, #bhide, #bfill, #bmin, #bfast, .fast-anchor { display: none; }
     .drag-handle { inset: 8px 8px 0 8px; }
 }
 /* Help is the last thing to go on this bar, and it is the one control that says what the keys are:
@@ -1086,7 +1476,10 @@ body.drawmode #hud {
    because it is not on the same arithmetic: with the caption gone, what is left up here is this
    button, the pen and the cross, which is 3 x 28 plus 2 x 8, so 100, and 100 plus the bar's own 32
    of padding is 132, which is the narrowest window that can hold all three without pushing the last
-   one off the right edge. Below it the pen and the cross stay, because those two are the only way
+   one off the right edge. The temporary speed chip is not in that count because the 600px rule
+   above has already taken it, and that is the whole reason it rides that rule rather than carrying
+   one of its own: a seventh item that only appeared at this width would need a third switch and a
+   second set of arithmetic. Below it the pen and the cross stay, because those two are the only way
    out of a window this size, and their own 2 x 28 plus 8 is 64, which with the same 32 of padding
    is 96 and so clears 132 by 36. The bottom row's switches are untouched and nothing here moves
    them: this is the top bar's arithmetic and the top bar's alone. */
@@ -1143,6 +1536,23 @@ body.drawmode #hud {
     <button class="btn resume-go" id="resume-go" type="button">Continue from 00:00:00</button>
 </div>
 
+<!-- What a hold of Space leaves on screen, and the only thing it leaves: one pill carrying the speed
+     while the top bar, the bottom row and the resume chip are all out of the way. It is a sibling of
+     both of those and a child of neither, because both are what goes away, and it is fixed at the
+     top centre of the window because that is where YouTube puts it and where the eye already goes
+     for it.
+
+     It takes no focus, takes no press and is out of the accessibility tree for as long as this page
+     is open, and the reasons for all three are at length in the stylesheet and beside enterFast: it
+     is a reflection of a key that is physically down rather than an answer to a question, and it
+     has no control in it to answer with. The number is not withheld from anybody: the field in the
+     bottom row and the chip in the top bar both state it and both can be reached.
+
+     The string inside is written by setTempRate with everything else that reads tempRate, so it
+     cannot go stale against the chip that shows the same number, and the class on the element is
+     the only other thing written to it, by the two halves of the hold. -->
+<div class="fast-pill" id="fast-pill" aria-hidden="true"><span id="fast-pill-label">2x</span></div>
+
 <!-- Top bar -->
 <div id="topbar">
     <div class="drag-handle" id="drag-handle"></div>
@@ -1182,9 +1592,80 @@ body.drawmode #hud {
 
          All four are aria-hidden and the accessible name is the button's title, which is how the
          loop and fullscreen buttons already work: an inline svg with no name of its own contributes
-         nothing to the button's name, so title is what a screen reader reads. -->
+         nothing to the button's name, so title is what a screen reader reads.
+
+         The seventh item in this row is not a window button and is counted separately for that
+         reason: the temporary speed chip and the panel it opens, described at length in the
+         stylesheet and in the script below. It sits here, between the question mark and the eye,
+         and not down on the bottom row beside the persistent number, because the two are different
+         speeds and putting them side by side on one bar is the mistake the whole pair exists to
+         prevent. Nothing on the bottom row is moved, hidden or removed by any of it. -->
     <div class="winctrl">
         <button class="wbtn" id="bhelp" title="Keyboard shortcuts (/)">?</button>
+        <!-- The temporary speed, which is the speed Space gives for as long as it is held and only
+             for that long. The chip is a chip because it is the only control that sets that number,
+             and it shows the number rather than the word HOLD because a chip that had to change
+             what it says depending on whether a key was down would be a different chip in each of
+             its two states, and two chips is what a bar must not have.
+
+             The label inside is aria-hidden and the accessible name is on the button instead,
+             because "2x" is what a screen reader would otherwise announce for this control and
+             "2x" says nothing about what it is a control for. The script writes that name with the
+             current number in it, so the name cannot go stale against the chip it describes, and it
+             ends with the chip's own text so the two agree for SC 2.5.3.
+
+             The panel is a sibling of the chip rather than a child of it, anchored to it from below
+             in the stylesheet, and inside #topbar so the bar's own three-second fade and draw
+             mode's display: none take it away with the chip it belongs to. It reads top to bottom
+             as what this speed is, what it is now, how to move it and the speeds a hold is for,
+             which is the order YouTube's November 2024 panel reads in and not the tall stack of rows
+             that panel replaced. The big number IS the field rather than sitting beside a small
+             one, so clicking the value is the way to type a new one and there is no second box to
+             find. Four blocks, every one of which applies the moment it is touched: no OK, because
+             there is nothing to confirm, and no cancel, because there is nothing left to discard.
+             Escape and a press anywhere outside are the whole of the way out. -->
+        <div class="fast-anchor">
+            <button class="wbtn" id="bfast" title="Temporary speed" aria-expanded="false"
+                    aria-label="Temporary speed: 2x"><span id="fast-badge-label" aria-hidden="true">2x</span></button>
+            <div class="fast-panel" id="fast-panel" role="group" aria-labelledby="fast-panel-label">
+                <div class="fast-panel-header">
+                    <label class="fast-panel-label" id="fast-panel-label" for="fast-input">Hold Speed</label>
+                    <p class="fast-panel-sub">Active while holding screen or Space</p>
+                </div>
+
+                <!-- Speed Value Input (Full Row) -->
+                <div class="fast-input-row">
+                    <input class="fast-input" id="fast-input" type="text" role="spinbutton"
+                           aria-valuemin="0.0625" aria-valuemax="16" aria-valuenow="2" aria-valuetext="2.00 times"
+                           value="2.00" inputmode="decimal" spellcheck="false" autocomplete="off">
+                    <span class="fast-value-unit">x</span>
+                </div>
+
+                <!-- Slider with labels -->
+                <div class="fast-slider-wrap">
+                    <div class="fast-slider-labels">
+                        <span>0.06x</span>
+                        <span class="fast-slider-center">Drag to adjust</span>
+                        <span>16x</span>
+                    </div>
+                    <div class="fast-slider-track-wrap">
+                        <input class="fast-slider" id="fast-slider" type="range" min="0.0625" max="16" step="0.05" value="2"
+                               aria-label="Temporary speed slider">
+                    </div>
+                </div>
+
+                <!-- Quick Presets -->
+                <div class="fast-presets-wrap">
+                    <span class="fast-presets-label">QUICK PRESETS</span>
+                    <div class="fast-presets">
+                        <button class="fast-preset" type="button" data-rate="1.5" aria-pressed="false">1.5x</button>
+                        <button class="fast-preset sel" type="button" data-rate="2" aria-pressed="true">2x</button>
+                        <button class="fast-preset" type="button" data-rate="3" aria-pressed="false">3x</button>
+                        <button class="fast-preset" type="button" data-rate="4" aria-pressed="false">4x</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <button class="wbtn" id="bhide" title="Toggle on-screen controls">
             <svg viewBox="0 0 14 14" id="hide-shown" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M1 7C2.6 4.4 4.7 3.2 7 3.2S11.4 4.6 13 7c-1.6 2.6-3.7 3.8-6 3.8S2.6 9.6 1 7z"/>
@@ -1287,7 +1768,12 @@ body.drawmode #hud {
      listed, and the four keys that mean one thing while playing and another while drawing say so
      in their own row rather than being printed once without a scope. A row is one action and not
      one key: two keys that reach the same action share that row and both are printed on it,
-     because the owner read "Fullscreen on or off" twice over as two separate things to look up. -->
+     because the owner read "Fullscreen on or off" twice over as two separate things to look up.
+
+     Space is printed twice, once in Playback and once in Speed, and it is the one place that rule
+     above cannot be followed: it is one key reaching two different actions depending on how long it
+     is down, and a single row could only ever state one of them. Printing only the tap would leave
+     the hold undiscoverable in the one place in this app that exists to list the keys. -->
 <div id="keys-overlay" class="keys-overlay">
   <div class="keys-panel" role="dialog" aria-modal="true" aria-labelledby="keys-title">
     <div class="keys-head">
@@ -1340,6 +1826,10 @@ body.drawmode #hud {
             <li class="keys-row">
               <span class="keys-desc">Faster</span>
               <span class="keys-keys"><kbd class="keys-key">]</kbd></span>
+            </li>
+            <li class="keys-row">
+              <span class="keys-desc">Hold to play fast, and back on release</span>
+              <span class="keys-keys"><kbd class="keys-key">Space</kbd></span>
             </li>
           </ul>
         </li>
@@ -1622,24 +2112,35 @@ function showControls() {
 }
 function hideControls() {
     clearTimeout(hideT);
+    // The temporary speed panel goes down with the bar it is anchored to, by the same one call and
+    // for the same reason the resume chip gets from hideResumeWithChrome. It is not cosmetic: the
+    // panel is inside #topbar, so the bar's own fade already takes it off screen, and an item that
+    // is invisible while still remembering that it is open comes back on the next mouse move still
+    // open, which would spend the chip's next press closing something nobody can see.
+    closeFast();
     topbar.classList.remove('show');
     hud.classList.remove('show');
     renderHideIcon();
     applyBodyCursor();
 }
 function showUI() {
-    if (hudLock || hudPin || document.body.classList.contains('drawmode')) return;
+    // body.fastmode is in this list beside body.drawmode and for the same reason, and it is the
+    // class rather than a variable because this function is called on the first line of the chrome
+    // block, long before the temporary speed block has been parsed and a let declared there would
+    // still be in its temporal dead zone here. While a key is held the chrome is out of the way
+    // whatever this returns, so the refusal is about not disturbing the state behind it: nothing
+    // during a hold may raise the chrome or re-arm the timer that would take it down, and the hold
+    // restores the state it found rather than writing one.
+    if (hudLock || hudPin || window.spaceDown || window.pointerDown || document.body.classList.contains('drawmode') || document.body.classList.contains('fastmode')) return;
     showControls();
     clearTimeout(hideT);
-    // Re-checked when the timer fires, not only when it was set, because the rate field can take
-    // focus somewhere inside those three seconds. The chrome does not go to opacity 0 with the
-    // keyboard sitting in it: an invisible control cannot be read and cannot be escaped from by eye,
-    // and it takes the focus ring with it. Inside the chrome rather than in the field alone, so a
-    // control that took focus from a click is in the same position.
-    hideT = setTimeout(() => {
-        if (hud.contains(document.activeElement)) { showUI(); return; }
-        hideControls();
-    }, 3000);
+    // While video is playing, auto-hide chrome after 3 seconds of idle. While paused, keep controls visible.
+    if (!vid.paused) {
+        hideT = setTimeout(() => {
+            if (hud.contains(document.activeElement)) { showUI(); return; }
+            hideControls();
+        }, 3000);
+    }
 }
 // H hides the chrome and brings it back pinned
 // The chip rides the explicit toggle only, so the three second idle timer in showUI cannot take it
@@ -1753,7 +2254,7 @@ vid.addEventListener('loadedmetadata', () => {
 readVideoAspect(); // nothing to read yet on first run; harmless if there ever is
 document.addEventListener('mousemove', () => { hudPin = false; showUI(); });
 document.addEventListener('keydown', e => {
-    if (e.code === 'Escape') return;
+    if (e.code === 'Escape' || e.code === 'Space') return;
     hudPin = false;
     showUI();
 });
@@ -1894,25 +2395,34 @@ document.addEventListener('mousedown', (e) => {
    the default on a mousedown is what would suppress focus, and the press still belongs to the
    control under it. */
 
-/* ====================== MOVE THE WINDOW WITH THE CHROME HIDDEN ====================== */
-// With the chrome hidden there is no title bar left to grab, so a press on the stage
-// moves the window instead. Registered after the edge handler above on purpose: that
-// handler sets `resizing` on an edge press, and this one bails out, so resize wins.
+/* ====================== MOVE THE WINDOW OR HOLD FOR SPEED ====================== */
 document.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    if (resizing) return;
-    if (drawbar.classList.contains('open')) return;
-    if (textDialog.style.display !== 'none') return;
-    // Only while hidden: with the chrome up, the title bar is the drag affordance
-    if (topbar.classList.contains('show') || hud.classList.contains('show')) return;
-    e.preventDefault();
-    window.ipc.postMessage('drag_window');
+    beginPointerPress(e);
 });
 
-document.addEventListener('mouseup', () => {
+document.addEventListener('mousemove', (e) => {
+    if (pointerDown && !fastActive) {
+        const dx = e.clientX - pointerStartX;
+        const dy = e.clientY - pointerStartY;
+        if (Math.hypot(dx, dy) > 7) {
+            pointerMoved = true;
+            clearTimeout(pointerHoldTimer);
+            pointerHoldTimer = null;
+            // With chrome hidden, dragging moves the window
+            if (!topbar.classList.contains('show') && !hud.classList.contains('show')) {
+                pointerDown = false;
+                window.pointerDown = false;
+                window.ipc.postMessage('drag_window');
+            }
+        }
+    }
+});
+
+document.addEventListener('mouseup', (e) => {
     resizing = false;
     resizeDir = '';
     resizePending = false;
+    endPointerPress(e);
 });
 
 window.addEventListener('blur', () => {
@@ -1923,6 +2433,8 @@ window.addEventListener('blur', () => {
     dragData = null;
     drawing = false;
     selShape = null;
+    endSpacePress();
+    endPointerPress();
 });
 
 /* ====================== WINDOW BUTTONS ====================== */
@@ -2278,6 +2790,416 @@ bslower.onclick = () => { stepRate(-1); };
 bfaster.onclick = () => { stepRate(1); };
 renderRate();
 
+/* ====================== TEMPORARY SPEED: HOLD SPACE ====================== */
+/* Two speeds, both of which stay on screen and neither of which replaces the other. The number on
+   the bottom row is the speed in effect when nothing is held, and it is the field this file
+   already had: it is not moved, not hidden, not renamed, and nothing in this block writes to it
+   directly at all. This is the other one, the speed while Space is physically down, and the only
+   thing that ever applies it is a key that is currently down.
+
+   WHY THE HOLD WAITS A QUARTER SECOND AND DOES NOT ACT ON KEYDOWN. The delay is the whole design
+   and it is not a number anybody chose for taste. One key has two meanings here and they are told
+   apart by how long it is down, which means the app has to know, at the moment it would have to act,
+   whether this is going to turn out to be a tap or a hold. Acting on keydown cannot: a press and a
+   release are the same two events and by the time the first one arrives nobody knows whether the
+   second is coming, so acting then takes play/pause away outright. Acting on keyup alone is worse
+   and in the opposite direction: the picture would sit at 1.00 for a quarter of a second on every
+   play and every pause, so the speed control would flicker on the most-used key in the app and
+   every pause would look like a glitch. Between the two, the timer is what lets a tap stay exactly
+   the tap it has always been: nothing at all is written to the video until the timer fires, so a
+   key that goes up again inside it leaves the rate and the paused flag untouched and the keyup
+   path below does precisely what the Space case did before there was a timer here.
+
+   And the two cannot both have happened, which is the property that makes either of them safe. By
+   the time the callback runs, a release has not happened, so the keyup path will see fast mode up
+   and do the restore and nothing else; by the time a release arrives without fast mode up, the
+   timer either has not fired or never will, so the restore cannot be needed. A tap never flickers
+   the speed because a tap never reaches the video at all, and a hold never pauses because a hold
+   never reaches the toggle.
+
+   The value itself. 250ms is under the 300 to 500 that a deliberate press measures and far over
+   the roughly 50ms autorepeat delay, which is what makes a held key unmistakably a hold rather
+   than a run of short taps. It is also short enough that nobody describes the feature as laggy,
+   and long enough to separate the two gestures by the only signal a keyboard has. Three quarters
+   of a second was considered and rejected: nobody watches a quarter of a second of 4x in their
+   head as fast, and a threshold that long reads to the hand as no threshold at all.
+
+   WHY FAST MODE IS TORN DOWN ON BLUR. Because the worst outcome in this feature is not a wrong
+   speed, it is a stuck one. A user who holds Space and alt-tabs releases the key into another
+   window, and this page never hears about it: the timer has already fired, fast mode is entered,
+   and the only thing in the whole file that could undo it is the keyup that is never going to
+   come. The picture then stays at the temporary speed, and keeps playing, and the bottom row's
+   field reads that speed because applyRate renders it, and there is nothing on screen to say why.
+   The user closes the window and comes back to a video running four times too fast. So the restore
+   is wired to the window blur handler as well as to the keyup, in the same place the six other
+   half-finished gestures are dropped, and by the same one call, which also covers the softer
+   version: a blur inside the quarter second is a tap that never completes, so the timer is cleared
+   and the keyup that arrives on the way back finds wasDown false and does nothing at all instead
+   of pausing a picture nobody touched.
+
+   That call is from the blur handler and not from here because here is too late: this block is
+   the end of the file's script and the blur handler is registered long before it, so a function
+   declared below would not exist when the listener was registered if declarations did not hoist.
+   They do, and endSpacePress is one of them, which is the only reason a function defined here can
+   be called from there at all. Nothing about the gesture depends on the window being there when
+   the key goes up. */
+const HOLD_MS = 250;
+const fastBtn    = document.getElementById('bfast');
+const fastPanel  = document.getElementById('fast-panel');
+const fastInput  = document.getElementById('fast-input');
+const fastSlider = document.getElementById('fast-slider');
+const fastLabel  = document.getElementById('fast-badge-label');
+const fastPill   = document.getElementById('fast-pill');
+const fastPillLabel = document.getElementById('fast-pill-label');
+const fastMinus  = document.getElementById('fast-minus');
+const fastPlus   = document.getElementById('fast-plus');
+// The four preset buttons, read once. They are the only writers of a whole number besides the field
+// and they all carry the value they set, so the markup is the table and there is no second list here
+// to keep in step with it. setTempRate is what marks which one is current, and it compares against
+// the same number rather than against the text, so 2 typed by hand and 2 pressed here are the same
+// answer to "is this one chosen".
+const fastPresets = Array.from(document.querySelectorAll('.fast-preset'));
+
+// The slider spans the full range from RATE_MIN (0.0625x) to RATE_MAX (16x).
+const FAST_SLIDER_MIN = 0.0625;
+const FAST_SLIDER_MAX = 16;
+
+// The four preset speeds are in the markup on each button's data-rate (1.5x, 2x, 3x, 4x)
+// and provide instant one-click selection.
+
+// The temporary speed itself.
+let tempRate = 2;
+let fastOpen = false;
+// The press flags. Also exposed on window so showUI can check them before TDZ.
+window.spaceDown = false;
+window.pointerDown = false;
+let spaceDown = false;
+let holdTimer = null;
+// Fast mode's own three facts, all written on the way in and all read only on the way out.
+let fastActive = false;
+let fastSavedRate = 1;
+let fastWasPaused = true;
+
+// The chip reads 2x and 2.5x where fmtRate reads 2.00 and 2.50, because fmtRate is the bottom row's
+// formatter and the bottom row holds a six-character field while this is a 28-tall chip: a whole
+// number prints bare and everything else prints at the four decimals the 0.0625 floor needs and no
+// further. toFixed(4) then parseFloat, so trailing zeros are dropped rather than rounded twice, and
+// 2.5 comes out as 2.5 rather than 2.50.
+function fmtFast(v) {
+    return (Number.isInteger(v) ? String(v) : String(parseFloat(v.toFixed(4)))) + 'x';
+}
+
+function updateFastSliderFill() {
+    if (!fastSlider) return;
+    const min = FAST_SLIDER_MIN;
+    const max = FAST_SLIDER_MAX;
+    const val = Math.min(max, Math.max(min, tempRate));
+    const pct = ((val - min) / (max - min)) * 100;
+    fastSlider.style.background = `linear-gradient(to right, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.7) ${pct}%, rgba(255,255,255,0.2) ${pct}%, rgba(255,255,255,0.2) 100%)`;
+}
+
+function setTempRate(v, writeField) {
+    if (!Number.isFinite(v)) return false;
+    tempRate = Math.min(RATE_MAX, Math.max(RATE_MIN, v));
+    fastLabel.textContent = fmtFast(tempRate);
+    fastBtn.setAttribute('aria-label', 'Temporary speed: ' + fmtFast(tempRate));
+    fastPillLabel.textContent = fmtFast(tempRate);
+    fastPresets.forEach(btn => {
+        const chosen = Number(btn.dataset.rate) === tempRate;
+        btn.classList.toggle('sel', chosen);
+        btn.setAttribute('aria-pressed', chosen ? 'true' : 'false');
+    });
+    if (writeField) {
+        fastInput.value = fmtRate(tempRate);
+        fastInput.setAttribute('aria-valuenow', String(tempRate));
+        fastInput.setAttribute('aria-valuetext', fmtRate(tempRate) + ' times');
+    }
+    if (document.activeElement !== fastSlider) {
+        fastSlider.value = String(Math.min(FAST_SLIDER_MAX, Math.max(FAST_SLIDER_MIN, tempRate)));
+    }
+    updateFastSliderFill();
+    if (window.ipc && window.ipc.postMessage) {
+        window.ipc.postMessage('temp_rate:' + tempRate);
+    }
+    return true;
+}
+
+window.setStoredTempRate = (r) => {
+    if (typeof r === 'number' && Number.isFinite(r) && r >= RATE_MIN && r <= RATE_MAX) {
+        setTempRate(r, true);
+    }
+};
+
+// The three states this control must not answer in, each of which already has an early return
+// somewhere else in this file and each of which is copied here rather than reinvented. helpOpen is
+// the one boolean the shortcuts panel owns, and it is modal and takes the whole keyboard while it
+// is up. The draw bar takes the top bar away with display: none, so the chip cannot be pressed at
+// all there, and its own handler at the foot of this file takes the keyboard as well. The bottom
+// row's rate field is the third: the keystrokes that would arrive here never get that far, because
+// that field stops propagation on its own keydown, which is the same stop the panel above makes and
+// the reason a space typed into either field is a space and not a pause.
+function fastBlocked() {
+    if (helpOpen) return true;
+    if (drawbar.classList.contains('open')) return true;
+    if (document.activeElement === rateInput) return true;
+    return false;
+}
+
+function openFast() {
+    if (fastOpen) return;
+    fastOpen = true;
+    fastPanel.classList.add('open');
+    fastBtn.setAttribute('aria-expanded', 'true');
+    setTempRate(tempRate, true);
+    // The chrome's own clock, re-armed from the control that opens a panel over the picture. The
+    // panel lives in #topbar, which fades after three seconds, so a panel left up by the idle timer
+    // would be a panel nothing can see.
+    showUI();
+}
+
+function closeFast() {
+    if (!fastOpen) return;
+    fastOpen = false;
+    fastPanel.classList.remove('open');
+    fastBtn.setAttribute('aria-expanded', 'false');
+    // The same call closeHelp makes and for the same reason: a panel taken off screen with the
+    // keyboard still sitting in it is the incident this app has already had once, and the guard is
+    // cheap because nothing is focused on the way in. This is the only place a focus can be let go
+    // of, which is the other half of never taking one.
+    if (fastPanel.contains(document.activeElement)) document.activeElement.blur();
+}
+
+fastBtn.addEventListener('click', () => {
+    if (fastBlocked()) return;
+    if (fastOpen) closeFast();
+    else openFast();
+});
+
+// A press anywhere else dismisses, on mousedown rather than on click for two reasons: the press
+// that opens the panel must not also be the press that closes it, and a press that begins on the
+// picture has to end this before the picture's own handlers below see it. The chip is passed over
+// because its click toggles, and without this a press on the chip would close the panel here and
+// then open it again in the handler above, which is a chip that cannot be shut.
+document.addEventListener('mousedown', e => {
+    if (!fastOpen) return;
+    if (fastPanel.contains(e.target) || fastBtn.contains(e.target)) return;
+    closeFast();
+});
+
+// Escape, from wherever the keyboard is. Registered here, which is earlier in this script than both
+// the shortcuts panel's own keydown and the global player handler, because both of those can claim
+// Escape and the global one spends it on leaving fullscreen. A panel up is a frontmost thing, and
+// the shortcuts panel says the same about itself; this is answered first and consumed here so the
+// panel cannot be left up with the window going fullscreen underneath it.
+//
+// helpOpen is refused here, and being refused here rather than left to openHelp alone is the point:
+// this listener is registered first, so a panel that was somehow still open would swallow the Escape
+// that the shortcuts panel consumes to close itself, and the owner would be sitting in a modal
+// dialog whose way out had stopped working. That is WCAG 2.1.2 No Keyboard Trap, the same fault
+// the handler it would have starved is written to prevent.
+document.addEventListener('keydown', e => {
+    if (!fastOpen || helpOpen || e.code !== 'Escape') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    closeFast();
+});
+
+// One handler for the whole panel rather than one per control, so the stop that matters is made in
+// exactly one place: the player handler at the foot of this file switches on e.code with no focus
+// guard at all, so without it every keystroke aimed at this panel fires a player shortcut instead
+// of reaching it. c, h, l, m, f, F11, the brackets, comma and period, the arrows, the slash: all of
+// them are in reach of the hands that are here to type a number. keyup is stopped for the same
+// reason and it matters more here than anywhere else in this file, because the keyup of a Space is
+// what ends a hold and what toggles play/pause when there was no hold.
+//
+// It is on the panel and not on the field, the slider or any of the five buttons, and that is what
+// keeps the rule true as controls are added to it: a keydown from any of them bubbles here, so the
+// two step buttons, the slider and the four presets are covered by the same one stop as the field
+// rather than each needing a copy of it. The one thing a control of its own still has to do is
+// cancel the browser's own default, which is what the field's arrow handler below is for.
+//
+// Escape closes rather than reaching the document handler above, because this stop is unconditional
+// and the key never gets that far. showUI is in here because the chrome's three seconds run from
+// the last thing that happened, and a panel somebody is still typing in is not idle. That is the
+// same rule as the re-check on #hud's focus in the timer below, reached the other way round: this
+// block changes nothing about showUI itself.
+fastPanel.addEventListener('keydown', e => {
+    e.stopPropagation();
+    showUI();
+    if (e.code === 'Escape') {
+        e.preventDefault();
+        closeFast();
+    }
+});
+fastPanel.addEventListener('keyup', e => e.stopPropagation());
+
+// The slider applies on input rather than on change, which is the same "as it is moved" rule the
+// typing path has. There is no commit step to wait for and therefore no reason for the chip and the
+// thumb to disagree for the length of a drag, and change would fire late enough on some engines to
+// make the thumb look stuck.
+fastSlider.addEventListener('input', () => setTempRate(Number(fastSlider.value), true));
+
+// Typing applies on input as well, which is the sharpest part of it and the reason there is no OK
+// button on this panel: "2.5" applies as 2, then as 2 again for the trailing period, then as 2.5,
+// and the chip reads 2x for the two intermediate states of a number that is halfway through being
+// typed. That is the requirement, not a flaw: a speed that only moved on Enter would be a control
+// with a save step, and a save step is what a cancel button would then need.
+//
+// Anything that is not a number writes nothing at all, and the empty case is caught before the
+// parse rather than after it, because Number('') is 0 and 0 is a real rate here: the one rate that
+// stands the picture still without pausing it. A refused value is left exactly as typed rather than
+// being overwritten under the hand, and the panel puts the last good one back when it closes.
+fastInput.addEventListener('input', () => {
+    const raw = fastInput.value.trim();
+    const v = raw === '' ? NaN : Number(raw);
+    if (raw === '' || !Number.isFinite(v)) return;
+    setTempRate(v, false);
+});
+
+// The two step buttons and the field's own arrow keys, which are the same gesture in four places,
+// so they are one function. The grid is RATE_STEP, the bottom row's, because this is the same
+// quantity on the same quarter grid and a second step size for it would be a number to keep in
+// step with the other one for no reason anybody could state. One step off the grid rather than one
+// added to the last value, which is stepRate's rule and for stepRate's reason: a value typed off
+// the grid snaps to its nearest point and the rest of the grid is not dragged along with it, so a
+// 2.33 typed by hand steps down to 2.00 and never to 2.08. setTempRate clamps, so a step off either
+// end of the grid stops at the bound rather than asking the engine for a rate it refuses.
+//
+// Arrow keys are prevented here for the reason the bottom row's field prevents them: the player
+// handler at the foot of this file takes the arrows for seeking and volume with no focus guard of
+// its own, so without this a step from the keyboard would also move the picture and change the
+// sound. The panel's own keydown listener stops the same key from ever reaching that handler, but
+// stopping it there does not stop the engine's own caret behaviour on a text field, so the default
+// is cancelled here as well.
+function stepTemp(dir) {
+    setTempRate((Math.round(tempRate / RATE_STEP) + dir) * RATE_STEP, true);
+}
+if (fastMinus) fastMinus.addEventListener('click', () => stepTemp(-1));
+if (fastPlus) fastPlus.addEventListener('click', () => stepTemp(1));
+fastInput.addEventListener('keydown', e => {
+    if (e.code === 'Enter') { e.preventDefault(); fastInput.blur(); }
+    else if (e.code === 'ArrowUp' || e.code === 'ArrowRight') { e.preventDefault(); stepTemp(1); }
+    else if (e.code === 'ArrowDown' || e.code === 'ArrowLeft') { e.preventDefault(); stepTemp(-1); }
+});
+fastInput.addEventListener('blur', () => setTempRate(tempRate, true));
+// The presets are four presses of the same function, and the markup carries each value, so there is
+// no per-button code and no table to keep in step with the four buttons.
+fastPresets.forEach(btn => {
+    btn.addEventListener('click', () => setTempRate(Number(btn.dataset.rate), true));
+});
+
+// Entering fast mode.
+function enterFast() {
+    if (fastActive) return;
+    closeFast();
+    fastActive = true;
+    fastSavedRate = rate;
+    fastWasPaused = vid.paused;
+    applyRate(Math.min(RATE_MAX, Math.max(RATE_MIN, tempRate)));
+    if (fastWasPaused) vid.play().catch(() => {});
+    hideControls();
+    hideResumeWithChrome();
+    document.body.classList.add('fastmode');
+    fastPill.classList.add('show');
+}
+
+// Leaving fast mode. Restores persistent rate, hides pill and keeps UI hidden.
+function leaveFast() {
+    if (!fastActive) return;
+    fastActive = false;
+    applyRate(fastSavedRate);
+    if (fastWasPaused) vid.pause();
+    document.body.classList.remove('fastmode');
+    fastPill.classList.remove('show');
+    hideControls();
+    hideResumeWithChrome();
+}
+
+// Pointer (mouse / touch) press & hold to fast-forward like YouTube
+let pointerDown = false;
+let pointerHoldTimer = null;
+let pointerStartX = 0, pointerStartY = 0;
+let pointerMoved = false;
+
+function beginPointerPress(e) {
+    if (e.button !== 0) return;
+    if (resizing) return;
+    if (drawbar.classList.contains('open')) return;
+    if (textDialog.style.display !== 'none') return;
+    if (fastOpen) return;
+    if (e.target.closest('#topbar, #hud, #resume, #keys-overlay, .draw-btn, input, button, textarea, [role="button"]')) return;
+
+    pointerDown = true;
+    window.pointerDown = true;
+    pointerMoved = false;
+    pointerStartX = e.clientX;
+    pointerStartY = e.clientY;
+
+    clearTimeout(pointerHoldTimer);
+    pointerHoldTimer = setTimeout(() => {
+        pointerHoldTimer = null;
+        enterFast();
+    }, HOLD_MS);
+}
+
+function endPointerPress(e) {
+    const wasDown = pointerDown;
+    const wasMoved = pointerMoved;
+    pointerDown = false;
+    window.pointerDown = false;
+    pointerMoved = false;
+    clearTimeout(pointerHoldTimer);
+    pointerHoldTimer = null;
+
+    if (fastActive) {
+        leaveFast();
+        return;
+    }
+    if (!wasDown || wasMoved) return;
+
+    // Short tap / click on the video area toggles play/pause (like YouTube)
+    if (e && e.target && (e.target.id === 'stage' || e.target.id === 'v' || e.target.id === 'draw' || e.target === document.body)) {
+        vid.paused ? vid.play().catch(()=>{}) : vid.pause();
+    }
+}
+
+// Space press & hold.
+function beginSpacePress() {
+    spaceDown = true;
+    window.spaceDown = true;
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+        holdTimer = null;
+        enterFast();
+    }, HOLD_MS);
+}
+
+// Space release. If fast mode was active, leaves fast mode and keeps UI hidden until mouse moves.
+function endSpacePress() {
+    const wasDown = spaceDown;
+    spaceDown = false;
+    window.spaceDown = false;
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    if (fastActive) {
+        leaveFast();
+        return;
+    }
+    if (!wasDown) return;
+    vid.paused ? vid.play() : vid.pause();
+}
+
+// The keyup, on document rather than on the window or on any control, because the key can be
+// released over anything at all: over the picture, over the rate field, over another application.
+// A handler on a control would miss every release that landed somewhere else, and every release
+// that landed somewhere else is the one this feature cannot afford to miss.
+document.addEventListener('keyup', e => {
+    if (e.code !== 'Space') return;
+    endSpacePress();
+});
+
+setTempRate(tempRate, true);
+
 /* ====================== VOLUME ====================== */
 const volSlider = document.getElementById('vol-slider');
 const volFill   = document.getElementById('vol-fill');
@@ -2604,8 +3526,18 @@ vid.addEventListener('ended', () => {
 document.getElementById('bplay').onclick = () => {
     vid.paused ? vid.play() : vid.pause();
 };
-vid.addEventListener('play', () => document.getElementById('bplay').textContent = '⏸');
-vid.addEventListener('pause', () => document.getElementById('bplay').textContent = '▶');
+vid.addEventListener('play', () => {
+    document.getElementById('bplay').textContent = '⏸';
+    if (!fastActive && !document.body.classList.contains('fastmode') && !hudLock) {
+        showUI();
+    }
+});
+vid.addEventListener('pause', () => {
+    document.getElementById('bplay').textContent = '▶';
+    if (!fastActive && !document.body.classList.contains('fastmode') && !hudLock) {
+        showUI();
+    }
+});
 
 document.getElementById('bloop').onclick = () => {
     loopEnabled = !loopEnabled;
@@ -2666,6 +3598,10 @@ const keysStops = [keysList, keysClose];
 
 function openHelp() {
     helpOpen = true;
+    // The temporary speed panel is taken down on the way in, for the reason the badge toggle is
+    // guarded against in its own Escape handler: this overlay is modal, so a panel that was still
+    // up behind it would be one Escape away from a shortcut panel that could not close.
+    closeFast();
     keysOverlay.classList.add('open');
     applyBodyCursor();  // the edge cursors would be claiming a resize the panel cannot start
     // On the static line at the top of the content, not on the Close button: a dialog that takes
@@ -2782,8 +3718,25 @@ document.addEventListener('keydown', e => {
         stepRate(1);
         return;
     }
+    // Space is a tap and a hold and it is told apart by the quarter second rather than here, for
+    // the reasons the block that owns it gives at length. Nothing is written to the video on the
+    // way down and nothing is drawn: the press is remembered and a timer is set, so a key that
+    // comes up again inside that timer reaches a toggle identical to the one this case used to be,
+    // and a key that is still down when the timer fires is handled by the callback instead. This is
+    // an early return of its own rather than a case in the switch below for the same reason the
+    // brackets above are: it is more than one statement.
+    //
+    // e.repeat is refused, and it is the whole reason this arm was ever wrong: a held key repeats
+    // keydown, so the old single line toggled play/pause on every repeat, which at the standard
+    // autorepeat rate is thirty times a second. That is fixed here rather than worked around,
+    // because a hold is now a gesture and a gesture has exactly one beginning.
+    if (e.code === 'Space') {
+        e.preventDefault();
+        if (e.repeat || spaceDown) return;
+        beginSpacePress();
+        return;
+    }
     switch (e.code) {
-        case 'Space':      e.preventDefault(); vid.paused ? vid.play() : vid.pause(); break;
         case 'ArrowRight': vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 5); break;
         case 'ArrowLeft':  vid.currentTime = Math.max(0, vid.currentTime - 5); break;
         case 'ArrowUp':    setVol(uVol + 0.1); break;
@@ -3287,7 +4240,7 @@ const STATE_FILE: &str = "state.json";
 // back for.
 const MAX_SAVED_POSITIONS: usize = 200;
 
-fn state_path() -> Option<PathBuf> {
+fn appdata_state_path() -> Option<PathBuf> {
     let base = if cfg!(target_os = "windows") {
         PathBuf::from(std::env::var_os("APPDATA")?)
     } else if cfg!(target_os = "macos") {
@@ -3301,6 +4254,24 @@ fn state_path() -> Option<PathBuf> {
         }
     };
     Some(base.join(STATE_FOLDER).join(STATE_FILE))
+}
+
+fn state_path() -> Option<PathBuf> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let exe_state = dir.join(STATE_FILE);
+            if exe_state.exists() {
+                return Some(exe_state);
+            }
+            if let Some(appdata_state) = appdata_state_path() {
+                if appdata_state.exists() {
+                    let _ = std::fs::copy(&appdata_state, &exe_state);
+                }
+            }
+            return Some(exe_state);
+        }
+    }
+    appdata_state_path()
 }
 
 // Logical pixels throughout, deliberately: a size or an offset remembered in physical pixels lands
@@ -3321,24 +4292,26 @@ struct WindowRect {
 fn read_state() -> (
     Option<WindowRect>,
     serde_json::Map<String, serde_json::Value>,
+    Option<f64>,
 ) {
     let empty = serde_json::Map::new();
     let Some(path) = state_path() else {
-        return (None, empty);
+        return (None, empty, None);
     };
     let Ok(text) = std::fs::read_to_string(path) else {
-        return (None, empty);
+        return (None, empty, None);
     };
     let Ok(serde_json::Value::Object(root)) = serde_json::from_str::<serde_json::Value>(&text)
     else {
-        return (None, empty);
+        return (None, empty, None);
     };
     let rect = root.get("window").and_then(remembered_rect);
     let positions = match root.get("positions") {
         Some(serde_json::Value::Object(map)) => map.clone(),
         _ => serde_json::Map::new(),
     };
-    (rect, positions)
+    let temp_rate = root.get("temp_rate").and_then(serde_json::Value::as_f64);
+    (rect, positions, temp_rate)
 }
 
 // All four or none: a rectangle missing a side is not a rectangle, and half of one is a position.
@@ -3357,7 +4330,11 @@ fn remembered_rect(value: &serde_json::Value) -> Option<WindowRect> {
 // on purpose and none of them can end the app: a state file the user cannot write to, a disk that
 // is full, a directory that will not be created. The one thing worth doing about any of those is
 // carry on as though nothing had been remembered, which is what the next launch does anyway.
-fn write_state(rect: Option<WindowRect>, positions: &serde_json::Map<String, serde_json::Value>) {
+fn write_state(
+    rect: Option<WindowRect>,
+    positions: &serde_json::Map<String, serde_json::Value>,
+    temp_rate: Option<f64>,
+) {
     let Some(path) = state_path() else {
         return;
     };
@@ -3378,6 +4355,11 @@ fn write_state(rect: Option<WindowRect>, positions: &serde_json::Map<String, ser
             "positions".to_string(),
             serde_json::Value::Object(positions.clone()),
         );
+    }
+    if let Some(rate) = temp_rate {
+        if rate.is_finite() && rate >= 0.0625 && rate <= 16.0 {
+            root.insert("temp_rate".to_string(), serde_json::json!(rate));
+        }
     }
     let Ok(text) = serde_json::to_string_pretty(&root) else {
         return;
@@ -3575,12 +4557,13 @@ fn save_state_on_exit(
     window: &Window,
     rect: &mut Option<WindowRect>,
     positions: &serde_json::Map<String, serde_json::Value>,
+    temp_rate: Option<f64>,
     fill_mode: bool,
 ) {
     if let Some(remembered) = remember_geometry(window, fill_mode) {
         *rect = Some(remembered);
     }
-    write_state(*rect, positions);
+    write_state(*rect, positions, temp_rate);
 }
 
 // Where the answer comes from, and the one address the shell is ever asked to open. Both are
@@ -3810,7 +4793,7 @@ async fn main() -> wry::Result<()> {
     // after it rather than instead of it. Nothing in the live path is limited by either: a very small
     // window stays a thing the owner can make, because this guard runs once on the way back in and
     // never on a drag. The position is checked separately below, against the monitors connected now.
-    let (mut remembered_rect, mut positions) = read_state();
+    let (mut remembered_rect, mut positions, mut temp_rate) = read_state();
     let file_size = std::fs::metadata(&path).ok().map(|meta| meta.len());
     let position_key = path.to_string_lossy().into_owned();
     let (inner_width, inner_height) = match remembered_rect {
@@ -3844,9 +4827,13 @@ async fn main() -> wry::Result<()> {
         Some(seconds) => serde_json::to_string(&seconds).unwrap_or_else(|_| "null".to_string()),
         None => "null".to_string(),
     };
+    let safe_temp_rate = match temp_rate {
+        Some(r) if r.is_finite() && r >= 0.0625 && r <= 16.0 => r.to_string(),
+        _ => "2".to_string(),
+    };
     let init_script = format!(
-        "window.addEventListener('DOMContentLoaded',function(){{window.loadVideo({});window.setTitle({});window.setResumePosition({});}});",
-        safe_url, safe_title, safe_resume
+        "window.addEventListener('DOMContentLoaded',function(){{window.loadVideo({});window.setTitle({});window.setResumePosition({});window.setStoredTempRate({});}});",
+        safe_url, safe_title, safe_resume, safe_temp_rate
     );
     // The update prompt's hook, installed as an initialization script so that it exists before any
     // page script does. The request below is fired once the window is up, and an answer can arrive
@@ -3900,7 +4887,7 @@ async fn main() -> wry::Result<()> {
                 geometry_due = None;
                 if let Some(remembered) = remember_geometry(&window, fill_mode) {
                     remembered_rect = Some(remembered);
-                    write_state(remembered_rect, &positions);
+                    write_state(remembered_rect, &positions, temp_rate);
                 }
             }
         }
@@ -3911,7 +4898,7 @@ async fn main() -> wry::Result<()> {
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
-                    save_state_on_exit(&window, &mut remembered_rect, &positions, fill_mode);
+                    save_state_on_exit(&window, &mut remembered_rect, &positions, temp_rate, fill_mode);
                     *control_flow = ControlFlow::Exit;
                 }
                 // Both arrive once per frame of a gesture, so all they do is push the deadline out.
@@ -3924,7 +4911,7 @@ async fn main() -> wry::Result<()> {
             },
             Event::UserEvent(msg) => {
                 if msg == "close" {
-                    save_state_on_exit(&window, &mut remembered_rect, &positions, fill_mode);
+                    save_state_on_exit(&window, &mut remembered_rect, &positions, temp_rate, fill_mode);
                     *control_flow = ControlFlow::Exit;
                 } else if msg == "minimize" {
                     window.set_minimized(true);
@@ -3950,6 +4937,13 @@ async fn main() -> wry::Result<()> {
                     fill_mode = true;
                 } else if msg == "fill_mode:off" {
                     fill_mode = false;
+                } else if let Some(rate_str) = msg.strip_prefix("temp_rate:") {
+                    if let Ok(rate_val) = rate_str.parse::<f64>() {
+                        if rate_val.is_finite() && rate_val >= 0.0625 && rate_val <= 16.0 {
+                            temp_rate = Some(rate_val);
+                            write_state(remembered_rect, &positions, temp_rate);
+                        }
+                    }
                 } else if let Some(seconds) = msg.strip_prefix("resume_save:") {
                     // Written the moment the page says where playback is, which is on a pause, on the
                     // close and nowhere else. A number that is not one, or is not past the start, is
@@ -3957,12 +4951,12 @@ async fn main() -> wry::Result<()> {
                     if let Ok(seconds) = seconds.parse::<f64>() {
                         if seconds.is_finite() && seconds > 0.0 {
                             remember_position(&mut positions, &position_key, seconds, file_size);
-                            write_state(remembered_rect, &positions);
+                            write_state(remembered_rect, &positions, temp_rate);
                         }
                     }
                 } else if msg == "resume_clear" {
                     if positions.remove(&position_key).is_some() {
-                        write_state(remembered_rect, &positions);
+                        write_state(remembered_rect, &positions, temp_rate);
                     }
                 } else if msg.starts_with("resize:") {
                     let parts: Vec<&str> = msg.split(':').collect();

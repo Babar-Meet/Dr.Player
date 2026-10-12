@@ -60,8 +60,9 @@ The project is intended for:
 - **Custom window chrome** — frameless window with drag, resize (all edges), minimize, close
 - **Hide the on-screen controls** with H or the eye button, with a stage drag so the window still moves
 - **Fill mode** (C) — reshapes the window to the video's own shape instead of cropping the picture
-- **Auto-hiding UI** — top bar and bottom HUD fade after 3s of inactivity
-- **Playback speed** as a typed field, across the engine's own 0.0625 to 16 range
+- **Intelligent Auto-hiding UI** — top bar and bottom HUD fade after 3s of inactivity while playing, and stay visible on pause for convenient inspection
+- **Hold-for-Speed & Floating Pill Indicator** — press and hold Spacebar or mouse/screen to temporarily fast-forward playback (YouTube style), showing a floating speed pill (e.g. `2x`), cleanly hiding controls during hold and keeping them hidden on release
+- **Glassmorphic Playback Speed Controls** — modern speed panel with full-range slider (0.06x to 16x), direct custom input box, quick preset buttons (1.5x, 2x, 3x, 4x), and global persistence of the temporary speed setting
 - **Optional update check** — one HTTPS GET per launch, opens the releases page, silent inside PDEA
 - **macOS WKWebView crash mitigations**: deferred cursor mutations, custom dialogs, autoplay config
 - **Error resilience**: global JS error handlers, Rust panic hook
@@ -87,7 +88,7 @@ The project is intended for:
 | Build Resources | winres 0.1 (Windows .ico embedding) |
 | Installer | NSIS (installer/DrPlayer.nsi) |
 | File associations | Windows registry under `HKCU\Software\Classes`, plus one value under `HKCU\Software\RegisteredApplications`, written by the installer, per user, never elevated |
-| Persistent storage | One JSON file in the OS config directory, holding the window's remembered geometry and one playback position per file. No database, no schema, nothing to migrate |
+| Persistent storage | One portable JSON file (`state.json`) stored directly in the executable's directory (with automatic migration from `%APPDATA%`), holding window geometry, playback position per file, and global temporary speed setting. No database, no schema, nothing to migrate |
 | No External APIs | One optional metadata GET to the GitHub releases API |
 
 ---
@@ -528,8 +529,8 @@ cargo build --release
 mkdir dist-installer
 
 # Pass the version in; read it from Cargo.toml rather than typing it twice.
-# Quote it: PowerShell splits an unquoted -DAPP_VERSION=2.2.0 at the dots.
-makensis "-DAPP_VERSION=2.2.0" installer\DrPlayer.nsi
+# Quote it: PowerShell splits an unquoted -DAPP_VERSION=3.0.0 at the dots.
+makensis "-DAPP_VERSION=3.0.0" installer\DrPlayer.nsi
 ```
 
 The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\release\dr-player.exe`, so build the binary first.
@@ -539,13 +540,13 @@ The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\r
 Three commands, in this order, and the order is the whole of it:
 
 ```bash
-# 1. bump the version in Cargo.toml: version = "2.2.0"
+# 1. bump the version in Cargo.toml: version = "3.0.0"
 
 # 2. rebuild the binary, so the executable carries the new number
 cargo build --release
 
 # 3. only now build the installer, with the same number
-makensis "-DAPP_VERSION=2.2.0" installer\DrPlayer.nsi
+makensis "-DAPP_VERSION=3.0.0" installer\DrPlayer.nsi
 ```
 
 The two versions come from two different places, and only one of them is read from `Cargo.toml`. The installer is told its version on the command line, so a bare `makensis` with a stale argument stamps whatever it was handed. The binary's version is `CARGO_PKG_VERSION`, frozen into the executable when it is compiled, and it reaches the binary twice: the HTTP User-Agent at `src/main.rs:3675` and the Windows file-version resource `build.rs` generates through `winres`. A release that bumps `Cargo.toml` and goes straight to `makensis` therefore ships a correctly numbered installer around a binary that reports the previous release, and since the update check compares GitHub's latest tag against the number the binary itself sends, the app offers an update to the version it is already running. Step 2 is not optional and step 3 is not a substitute for it.
@@ -659,8 +660,10 @@ cargo fmt
 
 ### User Interaction Walkthrough
 
-**Normal playback**: The user sees the video with a bare top bar (title capsule and window controls, with no background of its own) and an opaque bottom row. The chrome auto-hides after 3 seconds of inactivity. The user can:
+**Normal playback**: The user sees the video with a bare top bar (title capsule and window controls, with no background of its own) and an opaque bottom row. While playing, the chrome auto-hides after 3 seconds of inactivity, but remains visible whenever the video is paused (matching standard desktop media player behavior like VLC). The user can:
 - Click buttons or use keyboard shortcuts (Space, arrows, `,`/`.`, F/F11, M, L, C, H, `[`/`]`, `/`, Escape)
+- Press and hold Spacebar (or press-and-hold the mouse on the video stage) to temporarily fast-forward (YouTube style) at the configured hold speed, accompanied by a floating glassmorphic speed pill at the top of the screen; releasing restores the normal playback rate and preserves hidden controls until the mouse moves
+- Adjust playback speed with the speed button, opening a dark glassmorphic menu featuring a full continuous slider (0.06x to 16x), direct custom numeric entry, and one-click quick presets (1.5x, 2x, 3x, 4x), with the chosen hold speed memorized globally
 - Open the shortcuts panel on `/` or the help button, and close it with the same key or a click outside
 - Drag the window by the title bar (drag-handle or title-capsule), or by a press on the stage when the chrome is hidden
 - Resize from any edge (8px detection margin) with rAF-throttled IPC resize messages
@@ -704,10 +707,10 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**Last release cut from this tree** — v2.1.1. **The version `Cargo.toml` carries now is 2.2.0**, and `RELEASE_NOTES.md` opens with what that release changed: resume playback position, window size and position memory, and frame stepping measured from the file, which are the three features this README describes in the sections above. Whether a GitHub release exists for 2.2.0 is not visible from this repository, which carries one tag, `v0.3.0`, whose name never matched the crate; take `Cargo.toml` for the version and `RELEASE_NOTES.md` for what each one changed. v2.1.1 was a correction release over v2.1.0 with no code changed, and the first v2.1.1 installer is reported to have been built around a binary still stamped 2.1.0, which would make the app offer an update to itself. That binary is not kept here and no commit, tag or artefact records it, so that half of the sentence is a report about the machine the release was cut on rather than something a reader can check from this tree, which is the framing `RELEASE_NOTES.md` gives it in the same words. See Release order above.
+**The version `Cargo.toml` carries now is 3.0.0**, and `RELEASE_NOTES.md` opens with what that release changed: hold-for-speed playback, redesigned glassmorphic speed slider, intelligent pause UI visibility, and portable state persistence, which are described in the sections above. See Release order above.
 
 Evidence:
-- `version = "2.2.0"` in `Cargo.toml`, which is what the installer is told to stamp on the next build
+- `version = "3.0.0"` in `Cargo.toml`, which is what the installer is told to stamp on the next build
 - An NSIS installer whose version is typed by hand on the `makensis` command line. Nothing reads `Cargo.toml` at build time, so the two match only if whoever types the number types the one in `Cargo.toml`, and a bare `makensis` falls back to the sentinel `0.0.0-UNSET`. See Release order above
 - Windows file associations registered per user for `.mp4`, `.m4v`, `.mov` and `.webm`, from the installer's optional components section, with no write anywhere near `UserChoice`
 - Manual QA guide in `TESTING.md` and sample videos in `TESTING_videos/`

@@ -16,6 +16,26 @@ and deleted wholesale by 75e9ab8, which replaced this file with a single v1.0.0 
 shipped with no entry at all, and none has been added since. Each section says which of the two it is
 at the top.
 
+Dr.Player v3.0.0
+
+A major feature and UI overhaul introducing modern playback speed controls, YouTube-style hold-to-speed, intelligent control bar visibility, and portable state persistence.
+
+Hold-for-Speed Playback & Floating Indicator
+
+Pressing and holding the Spacebar (or pressing and holding the mouse on the video stage) now temporarily accelerates playback to a chosen fast-forward rate (default 2x). While held, the entire player chrome is smoothly hidden and a minimal, YouTube-style floating glassmorphic pill appears displaying the current temporary rate (e.g. "2x"). Releasing the key or mouse immediately restores normal playback speed and preserves chrome hiddenness until the mouse is moved.
+
+Redesigned Glassmorphic Speed Adjustment Panel
+
+The playback speed adjustment popover has been upgraded to a dark glassmorphic interface matching the player's aesthetic. A full-range slider spans the webview engine's entire range (0.06x to 16x) alongside a full-width editable input box. Preset buttons (1.5x, 2x, 3x, 4x) act as one-click quick targets. The chosen temporary speed is memorized globally across all videos and sessions.
+
+Intelligent Controls Visibility on Pause
+
+Controls remain visible whenever the video is paused, keeping playback controls and timeline accessible during inspection. While playing, controls automatically fade away after 3 seconds of inactivity. Controls hide completely in temporary speed mode or when explicit hide mode (H or the eye button) is toggled.
+
+Portable Application State Persistence
+
+Application state (`state.json`) is now stored directly in the executable's directory rather than in the operating system's roaming AppData directory. Existing state files from AppData are automatically migrated on launch. This ensures Dr.Player is fully portable whether installed or run standalone from any drive or directory, preserving window geometry, per-video resume points, and global speed preferences.
+
 Dr.Player v2.2.0
 
 The first release that adds a capability rather than correcting one. Three features, all of them
