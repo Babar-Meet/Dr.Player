@@ -102,6 +102,7 @@ mouse-up and on mouse-leave, so there is no persistent selection state to act on
 | 5 | Click on empty area. | Nothing happens. |
 | 6 | Press and hold the left mouse button on the shape, then press **Delete** before letting go. | That one shape is removed, and the removal is undoable. Letting go first removes the selection, and a later **Delete** then does nothing at all. |
 | 7 | Press **Backspace** (no modifier held). | **Every** shape is cleared, not just one. Undo (↩) brings them all back. |
+| 8 | Hold a shape down with the **Hand** tool and scroll the mouse wheel over it. Then release and scroll again. | The held shape's stroke resizes one notch at a time, between 1 and 40 — wider than the 1 to 20 the size slider in 2.5 can reach, so a held shape can be drawn thicker than the toolbar can set. The resize is **not on the undo stack**: an undo taken after it steps back past the draw that made the shape, not past the resize. After the release the wheel does **nothing**, because nothing is held. |
 
 ### 2.4 Tool switching mid-draw
 

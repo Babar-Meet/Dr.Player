@@ -2573,8 +2573,12 @@ resumeGo.addEventListener('click', () => {
 // hide, and change nothing else. A press on the picture means this person is watching, not that they
 // have been asked and said no, so it neither seeks to 0:00 nor clears what is stored, and there is no
 // other gesture in this file that means no for it to be mistaken for.
-// Escape is not a third way out and is not made one here: it does one thing in this app, which is
-// ask the window to leave fullscreen, and it never touches the controls.
+// Escape is not a third way out and is not made one here. It is owned in every state, and each owner
+// is the frontmost thing there is: the shortcuts panel up takes it and consumes it there, the draw
+// bar up closes it, the speed field focused abandons what was typed into it, and with none of those
+// up it asks the window to leave fullscreen. Not one of them is the chip, and none is the controls.
+// Each answers the thing it closes, and that is what keeps them off it: the chip is an offer, and
+// no key in this file is an answer to an offer.
 document.getElementById('stage').addEventListener('click', hideResumePanel);
 // Both stops are the same two the rate field and the text dialog already make, for the reasons they
 // give. The keydown one is what keeps Space on the focused Continue from resuming and toggling

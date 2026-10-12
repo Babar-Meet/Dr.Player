@@ -66,8 +66,10 @@ it does not.
 
 This is not frame accurate seeking and is not described as such anywhere. currentTime is a position
 in seconds and the engine decodes from whatever frame is nearest; only WebCodecs promises to land
-on a frame. A variable frame rate source gets the average of what was sampled, not a per-frame
-figure.
+on a frame. A variable frame rate source is not averaged over: every callback overwrites the
+interval with the gap between the two frames it was just handed, so such a file is characterised by
+the last two of them, and a measurement landing within two per cent of one of the nominal rates is
+snapped to that rate exactly.
 
 Known, and unchanged
 

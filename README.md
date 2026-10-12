@@ -44,19 +44,19 @@ The project is intended for:
 - **Windows file associations** — the installer registers Dr.Player for `.mp4`, `.m4v`, `.mov` and `.webm`, so it appears in Explorer's Open with menu, in the Open with dialog, and in Settings > Default apps. Windows reserves the choice itself, in `Explorer\FileExts\<ext>\UserChoice`, which the installer writes nothing near, so it takes nothing away from a program you already use
 - **Video playback** with play/pause, seek, frame stepping, volume control
 - **Frame stepping at the file's own rate** — the step is measured from the video itself through `requestVideoFrameCallback`, with the old fixed 1/60 second behind it for an engine that never calls back, so 24, 25, 30, 50, 60 and 120 fps source all step by one frame. The video element is still not asked to seek to a frame and does not promise to land on one
-- **Resume playback position** — a chip over the picture with one button on it, labelled `Continue from 00:12:34`, offering to carry on from where a file was left, while the video plays from 0:00 as always. Written on pause and on close. Cleared rather than written when a video reaches its end, so a finished file is never offered back, and a file reaching its end is the only thing that clears one at all: the chip's own ten seconds and a click anywhere on the picture both take the chip away and change nothing else, because neither of them is a refusal. Never written while loop is on
-- **Window size and position memory** — the last size and position are restored on the next launch, dropped if the window would land off a monitor that is no longer connected, and floored at 200x120 so a remembered window is always big enough to grab. Fullscreen is never remembered
+- **Resume playback position** — a chip over the picture with one button on it, labelled `Continue from 00:12:34`, offering to carry on from where a file was left, while the video plays from 0:00 as always. Written on pause and when the window is closed through its own close button. Cleared rather than written when a video reaches its end, so a finished file is never offered back, and a file reaching its end is the only thing that clears one at all: the chip's own ten seconds and a click anywhere on the picture both take the chip away and change nothing else, because neither of them is a refusal. Never written while loop is on. It is not put up at all when there is nothing worth putting it up for, and none of the four is a decision the viewer makes: a position barely into the file, where a prompt would be noise over the opening; a file the viewer has already watched most of the way through and is opening again to watch it whole, which is why the usual rule that hides only the last few seconds is the wrong one here; a stored position past where the file now ends, which is what a file that has since been replaced by a shorter one looks like; and an entry whose recorded size no longer matches the file on disk, so a name that now belongs to different video inherits nothing. Hiding the chrome on purpose, with H or the eye button, takes the chip down with it, because someone who asked for a clean screen should not be left with a button over it, and bringing the chrome back inside the chip's own ten seconds brings the chip back. The three second idle fade leaves it alone, because hiding it there too would cut a ten second window down to three and the offer would be a flash rather than something to read
+- **Window size and position memory** — the last size and position are restored on the next launch, with the position dropped and the window opened centred on the primary monitor at the same size if the remembered rectangle would not land entirely on a monitor that is connected now, which matters more here than in most players because this window is frameless and a restored window on a monitor that has gone has no title bar to drag it back with. A remembered size that comes back under 200x120 falls back to the default instead, because that is the smallest shape that still holds both bars without them overlapping, so a remembered window is always big enough to grab. No window geometry is recorded while the window is full or while fill mode is shaping it, because then the window's size belongs to the monitor or to the video rather than to the owner. A playback position is still written in those two states, which rewrites the whole state file and carries the last remembered rectangle over it untouched, so what is on file goes on saying what the window looked like when its size was the owner's own
 - **6 drawing tools**: Pen (freehand), Line, Arrow, Rectangle, Circle, Hand (select/move)
 - **Undo/redo** (50-level history) via toolbar buttons or mouse buttons 3/4
 - **Custom color picker** with 6 preset swatches + HTML color picker
 - **Stroke size** slider, 1–20; the number keys `0`–`9` reach the even sizes in that range, 2 to 20
 - **Mid-draw tool switching** — incomplete shapes are automatically cleaned up
 - **Draggable drawing toolbar** — repositionable via drag handle
-- **Global keyboard shortcuts**: Space, arrows, `,`/`.`, F/F11, M, L, C, H, `[`/`]`, `/`, Escape
+- **Global keyboard shortcuts**: Space, arrows, `,`/`.`, F/F11, M, L, C, H, `[`/`]`, `/`, and Escape, which is the one key here that means a different thing in each of the three states it can arrive in, and is described the same way in every one of them rather than as the single thing a shortcut list would like it to be: it asks the window to leave fullscreen while the video is playing, it closes the shortcuts panel while that panel is up, and it closes draw mode while the draw bar is. The panel is registered ahead of the player handler and takes the key there, so a dialog is never left standing with its own way out going somewhere else, and the draw handler sits behind both. It is not a way out of the resume chip either, which goes away for good on its own ten seconds, on a click anywhere on the picture, or on its own button, and Escape is none of those three. Every binding here is a bare key and no modifier is tested anywhere in the handler. That is a choice rather than a limit: WebView2 holds back a fixed set of its own chords and never delivers those to the page, which is what made the Ctrl+H this file once used dead, while other chords do arrive, plain Ctrl+letter among them. A shortcut label promising a chord the engine swallows is worse than one that does not, so the labels name the key rather than the character it makes on a layout
 - **Keyboard shortcuts panel** on `/` or the help button
 - **Draw mode** that isolates all draw keyboard shortcuts (prevents conflicts)
 - **Loop toggle** (single video repeat)
-- **Fullscreen** mode (F, F11, Escape)
+- **Fullscreen** mode (F or F11 to toggle it, Escape to leave it)
 - **Custom window chrome** — frameless window with drag, resize (all edges), minimize, close
 - **Hide the on-screen controls** with H or the eye button, with a stage drag so the window still moves
 - **Fill mode** (C) — reshapes the window to the video's own shape instead of cropping the picture
@@ -116,7 +116,7 @@ Dr.Player/
 ├── Cargo.toml                   # Rust project manifest, and the source of truth for the version
 ├── Cargo.lock                   # Rust dependency lockfile
 ├── build.rs                     # Windows resource compilation (embeds icon.ico)
-├── RELEASE_NOTES.md             # v2.1.1, v2.1.0, v2.0.0 and v1.0.0 release notes
+├── RELEASE_NOTES.md             # v2.2.0, v2.1.1, v2.1.0, v2.0.0, v1.0.0, v0.2.0 and v0.3.0 release notes
 ├── TESTING.md                   # Manual QA testing guide
 ├── LICENSE                      # Copyright notice
 └── README.md                    # This file
@@ -131,9 +131,9 @@ Dr.Player/
 
 **`docs/WEBVIEW_QUIRKS.md`** — Documents known cross-platform issues with WKWebView (macOS), WebKitGTK (Linux), and WebView2 (Windows), along with their workarounds.
 
-**`TESTING.md`** — Step-by-step manual QA guide covering macOS-specific tests, draw mode operations, keyboard shortcut conflicts, cross-platform matrix, crash resilience, and regression checklist.
+**`TESTING.md`** — Step-by-step manual QA guide covering macOS-specific tests, draw mode operations, keyboard shortcut conflicts, cross-platform matrix, crash resilience, regression checklist, and the resume position, window memory and frame stepping checks.
 
-**`RELEASE_NOTES.md`** — Documents changes in v2.1.1, v2.1.0, v2.0.0 and v1.0.0.
+**`RELEASE_NOTES.md`** — Documents changes in v2.2.0, v2.1.1, v2.1.0, v2.0.0 and v1.0.0, and says at the top which of its entries are records of what shipped and which, the v0.2.0 and v0.3.0 ones, are reconstructions.
 
 **`installer/DrPlayer.nsi`** — NSIS installer for Windows. Installs into the current user's profile, so no administrator rights are needed. The version is not written in the script; it is passed in with `-DAPP_VERSION=x.y.z`, taken from `Cargo.toml`. The installer also registers the Windows file associations described under Installation, and it writes no file associations outside the user's own profile.
 
@@ -183,7 +183,7 @@ Dr.Player is a **single-binary native desktop application** that combines:
 
 ### Request/Response Flow
 
-1. **Launch**: User opens a video. On Windows that means double-clicking it, or picking Dr.Player from an Open with menu, once the installer has registered the app for its type; everywhere it means naming the file on the command line, `dr-player <video-file>`
+1. **Launch**: User opens a video. On Windows that means double-clicking it, which reaches Dr.Player only where it has already been chosen as the default in Windows' own UI, or picking Dr.Player from an Open with menu, which the installer's registration is enough for and which needs no such choice; everywhere it means naming the file on the command line, `dr-player <video-file>`
 2. **Video Serving**: Rust starts an axum HTTP server on `127.0.0.1:<random_port>` bound only to localhost. A random 16-character alphanumeric token is generated. The video file is served at `http://127.0.0.1:<port>/<token>`
 3. **UI Loading**: wry creates a webview and renders the inline HTML. An initialization script sets `window.loadVideo(url)`, `window.setTitle(filename)` and `window.setResumePosition(seconds)` on `DOMContentLoaded`
 4. **Video Playback**: The browser's `<video>` element loads the URL from the embedded server and plays it
@@ -221,6 +221,7 @@ All application state lives in JavaScript variables within the webview:
 - **Window shape state**: `fillMode`, `videoAspect`, `fillOwnResize` — fill mode's own bookkeeping, so a resize it did not ask for can be told from one it did
 - **Drawing state**: `tool`, `color`, `size`, `drawing`, `shapes[]`, `undoStack[]`, `redoStack[]`, `selShape`, `selShapeOffX/Y`
 - **Window state**: `resizing`, `resizeDir`, `startX/Y`, `startW/H`, `dragData`
+- **Resume state**: `resumeSaved` (the seconds the window handed over, or null), `resumeTimer` (the chip's own ten seconds, and null once they have run out), `resumeWritten` (the last position written, so a pause inside half a second of the previous one is not a second write), `resumeSuppressed` (the chip is down because the chrome is, and an unhide may put it back)
 
 The Rust side holds almost no application state. What the event-loop closure carries is the tao window, for minimise, fullscreen, drag and resize, the wry webview, for the two `evaluate_script` calls and for `update_available`, and the two things the app remembers between launches: the window's geometry and the per-file playback positions, which are read once at startup, written on the settle timer and on the way out, and handed to the page as a single number on `DOMContentLoaded`. The proxies go elsewhere: the event loop's own proxy is moved into the IPC handler, which uses it to forward each incoming message onto the event loop, and a clone of it is moved into the update-check task, which uses it to carry the answer back.
 
@@ -281,7 +282,7 @@ The drawing system operates as a state machine:
 **`main()` flow:**
 1. Install Rust panic hook (`std::panic::set_hook`)
 2. Parse CLI argument (video file path) via clap derive parser
-3. Canonicalize the path with `std::fs::canonicalize`
+3. Canonicalize the path with `std::fs::canonicalize`, falling back to the path as typed when that fails, so a file the app cannot resolve still reaches the server rather than ending the launch
 4. Extract filename for window title via `PathBuf::file_name()`
 5. Generate random 16-char alphanumeric token via `rand::thread_rng().sample_iter(Alphanumeric).take(16)`
 6. Build axum Router with a single route `/{token}` serving the file via `tower_http::services::ServeFile`
@@ -374,16 +375,16 @@ The application uses a single IPC channel via `window.ipc.postMessage()`.
 
 | Message | Purpose | Rust Handler |
 |---------|---------|--------------|
-| `'close'` | Close the application window | `*control_flow = ControlFlow::Exit` |
+| `'close'` | Close the application window | Writes the remembered geometry and positions one last time, then `*control_flow = ControlFlow::Exit` |
 | `'minimize'` | Minimize the window | `window.set_minimized(true)` |
 | `'fullscreen'` | Toggle fullscreen | `window.set_fullscreen(Some(Fullscreen::Borderless(None)))` if not already fullscreen, else `window.set_fullscreen(None)` |
 | `'exit_fullscreen'` | Exit fullscreen | `window.set_fullscreen(None)` |
 | `'drag_window'` | Start window drag | `window.drag_window()` |
 | `'resize:{w}:{h}'` | Resize window to given dimensions | Parses width and height, keeps any finite pair of at least 1, calls `window.set_inner_size(LogicalSize::new(w, h))` |
 | `'fill_mode:on'` / `'fill_mode:off'` | Tell the window whether fill mode is shaping it | Sets a flag. While it is on, no window geometry is recorded, because a shape fill mode chose is the video's shape and not a size the owner picked |
-| `'resume_save:{seconds}'` | Record where playback was left in this file | Parses the number, drops anything that is not one or is not past the start, then stores it against this launch's canonical path together with the file's size, evicts the oldest entry past 200 files, and writes the state file |
+| `'resume_save:{seconds}'` | Record where playback was left in this file | Parses the number, drops anything that is not one or is not past the start, then stores it against this launch's path, which is the canonical one where the file could be resolved and the path exactly as typed where it could not, together with the file's size, evicts the oldest entry past 200 files, and writes the state file |
 | `'resume_clear'` | Forget this file's saved position | Removes the entry and writes the state file, and only if there was one. The page sends this when the video reaches its end, which is now the only thing that sends it |
-| `'open_release_page'` | Open the releases page in the default browser | `ShellExecuteW` on the releases URL |
+| `'open_release_page'` | Open the releases page in the default browser | `ShellExecuteW` with the open verb on Windows, and the platform's own launcher, `open` on macOS and `xdg-open` on Linux, elsewhere. Never the webview, so the video is not navigated away from under the person watching it |
 
 **Response format**: No return value (fire-and-forget). Messages are forwarded from `with_ipc_handler` to the tao event loop via `proxy.send_event()`.
 
@@ -417,7 +418,7 @@ Everything else is compile-time or CLI-based, with one exception that is read ra
 
 Not applicable. There is no database and no schema to migrate.
 
-There is one file, `state.json`, in the OS config directory of the user running the app — `%APPDATA%\Dr.Player\state.json`, `~/Library/Application Support/Dr.Player/state.json`, `$XDG_CONFIG_HOME/Dr.Player/state.json` or `~/.config/Dr.Player/state.json`. The install directory is owned by the installer and can be read-only, so nothing is written beside the binary. The file holds two things: the window's remembered geometry in logical pixels, and one entry per video file with the playback position it was left at, that file's size in bytes, and the time the entry was last written. At most 200 files are kept, and the least recently written entry is dropped to make room.
+There is one file, `state.json`, in the OS config directory of the user running the app — `%APPDATA%\Dr.Player\state.json`, `~/Library/Application Support/Dr.Player/state.json`, `$XDG_CONFIG_HOME/Dr.Player/state.json` or `~/.config/Dr.Player/state.json`. The install directory is owned by the installer and can be read-only, so nothing is written beside the binary. The file holds two things: the window's remembered geometry in logical pixels, and one entry per video file with the playback position it was left at, that file's size in bytes where the file could be measured, and the time the entry was last written. At most 200 files are kept, and the least recently written entry is dropped to make room. The size is what a canonical path cannot give — a name can come to mean a different file — and it is compared only when both sides know theirs, so a file that cannot be measured is the one case where a stored position is still trusted.
 
 Every failure is silent and none of them can stop the app: a missing file, a file that will not open, a file that is not JSON, and a file that is JSON but has none of the numbers in it all mean "nothing remembered", which is how the app opened before the file existed. A write that fails is not worth a dialog. The file is written beside itself and renamed over it, so a write cut short leaves the previous one whole.
 
@@ -527,8 +528,8 @@ cargo build --release
 mkdir dist-installer
 
 # Pass the version in; read it from Cargo.toml rather than typing it twice.
-# Quote it: PowerShell splits an unquoted -DAPP_VERSION=2.1.1 at the dots.
-makensis "-DAPP_VERSION=2.1.1" installer\DrPlayer.nsi
+# Quote it: PowerShell splits an unquoted -DAPP_VERSION=2.2.0 at the dots.
+makensis "-DAPP_VERSION=2.2.0" installer\DrPlayer.nsi
 ```
 
 The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\release\dr-player.exe`, so build the binary first.
@@ -538,16 +539,16 @@ The installer lands at `dist-installer\DrPlayer-Setup.exe` and bundles `target\r
 Three commands, in this order, and the order is the whole of it:
 
 ```bash
-# 1. bump the version in Cargo.toml: version = "2.1.1"
+# 1. bump the version in Cargo.toml: version = "2.2.0"
 
 # 2. rebuild the binary, so the executable carries the new number
 cargo build --release
 
 # 3. only now build the installer, with the same number
-makensis "-DAPP_VERSION=2.1.1" installer\DrPlayer.nsi
+makensis "-DAPP_VERSION=2.2.0" installer\DrPlayer.nsi
 ```
 
-The two versions come from two different places, and only one of them is read from `Cargo.toml`. The installer is told its version on the command line, so a bare `makensis` with a stale argument stamps whatever it was handed. The binary's version is `CARGO_PKG_VERSION`, frozen into the executable when it is compiled, and it reaches the binary twice: the HTTP User-Agent at `src/main.rs:3627` and the Windows file-version resource `build.rs` generates through `winres`. A release that bumps `Cargo.toml` and goes straight to `makensis` therefore ships a correctly numbered installer around a binary that reports the previous release, and since the update check compares GitHub's latest tag against the number the binary itself sends, the app offers an update to the version it is already running. Step 2 is not optional and step 3 is not a substitute for it.
+The two versions come from two different places, and only one of them is read from `Cargo.toml`. The installer is told its version on the command line, so a bare `makensis` with a stale argument stamps whatever it was handed. The binary's version is `CARGO_PKG_VERSION`, frozen into the executable when it is compiled, and it reaches the binary twice: the HTTP User-Agent at `src/main.rs:3675` and the Windows file-version resource `build.rs` generates through `winres`. A release that bumps `Cargo.toml` and goes straight to `makensis` therefore ships a correctly numbered installer around a binary that reports the previous release, and since the update check compares GitHub's latest tag against the number the binary itself sends, the app offers an update to the version it is already running. Step 2 is not optional and step 3 is not a substitute for it.
 
 ### What the installer registers on Windows
 
@@ -642,18 +643,18 @@ cargo fmt
 
 ### Startup Walkthrough
 
-1. The user opens a video: on Windows by double-clicking it or choosing Dr.Player from an Open with menu, and on any platform by naming it on the command line, `dr-player video.mp4`. Both routes reach the same place, because the registered command is `"dr-player.exe" "%1"`: one process, exactly one path, which is what the single required positional argument expects
-2. Rust parses the argument, resolves the file path with `std::fs::canonicalize`, and extracts the filename
+1. The user opens a video: on Windows by double-clicking it, which opens Dr.Player only where it has already been made the default, or by choosing Dr.Player from an Open with menu, which the installer's registration is enough for, and on any platform by naming it on the command line, `dr-player video.mp4`. Both routes reach the same place, because the registered command is `"dr-player.exe" "%1"`: one process, exactly one path, which is what the single required positional argument expects
+2. Rust parses the argument, resolves the file path with `std::fs::canonicalize` or keeps the path exactly as typed when that fails, and extracts the filename
 3. A random 16-character alphanumeric token is generated for security
 4. An axum HTTP server starts on `127.0.0.1:<random-port>`, serving the video file at `/{token}` via `tower_http::services::ServeFile`
-5. A frameless tao window is created with the application icon loaded from `resources/icon.ico`, at the remembered inner size or the default 1280×720 logical pixels, and moved to the remembered position when that still fits a monitor that is connected now
+5. A frameless tao window is created with the application icon loaded from `resources/icon.ico`, at the remembered inner size or the default 1280×720 logical pixels, and moved to the remembered position when that rectangle still fits entirely on a monitor that is connected now, or opened centred on the primary monitor at the same size when it does not
 6. The wry webview loads the embedded HTML — a complete video player UI with:
    - Video element (`<video id="v">`), top bar (title capsule, help, hide, fill, draw, minimize, close buttons) and the optional update chip
    - Bottom chrome, one slim flat row: play/pause, the two time readouts around a full-width timeline strip, -5s, +5s, -1F, +1F, the playback rate field, volume, loop, fullscreen
    - Drawing canvas overlay with annotation toolbar (6 tools, color swatches, size slider, undo/redo/clear, seek/step, exit)
 7. The initialization script calls `window.loadVideo(url)`, `window.setTitle(name)` and `window.setResumePosition(seconds)` after `DOMContentLoaded`
 8. The video starts playing with autoplay enabled. If the browser blocks audio autoplay, the video is muted and playback retried
-9. If this file was left part-watched, a chip appears over the picture with **one** button on it, reading **Continue from 00:12:34**. It never pauses the video, never holds autoplay and is not a modal, and it takes no focus, so the first Space while it is up still pauses the video rather than pressing the button. The button seeks to the saved position and playback carries on from there, and the position stays stored because the video really is sitting at it. There is no second button and nothing to refuse with: the chip's own ten seconds, and a click anywhere on the picture, both take the chip away and change nothing else — no seek, no pause, no `resume_clear` — because a timeout that ran while somebody was looking away is not a decision they made. Only the video reaching its end clears what was stored. Escape is not a way out of the chip either and does not touch it: it does one thing here, which is ask the window to leave fullscreen. Nothing is offered for a saved position under 5 seconds, past 90% of the duration, or past the end of a file that has since been replaced
+9. If this file was left part-watched, a chip appears over the picture with **one** button on it, reading **Continue from 00:12:34**. It never pauses the video, never holds autoplay and is not a modal, and it takes no focus, so the first Space while it is up still pauses the video rather than pressing the button. The button seeks to the saved position and playback carries on from there, and the position stays stored because the video really is sitting at it. There is no second button and nothing to refuse with: the chip's own ten seconds, and a click anywhere on the picture, both take the chip away and change nothing else — no seek, no pause, no `resume_clear` — because a timeout that ran while somebody was looking away is not a decision they made. Once one of those has happened the offer is over for good, so an unhide afterwards does not put the chip back. Only the video reaching its end clears what was stored. Escape is not a way out of the chip either and does not touch it: what it does is close draw mode, close the shortcuts panel, or, with neither up, ask the window to leave fullscreen, and none of the three is this. Hiding the chrome deliberately, with H or the eye button, does take the chip down with it, and bringing the chrome back inside the chip's own ten seconds brings the chip back; the three second idle fade does not, because it would turn a ten second offer into a three second one. The ten seconds are counted from the moment the chip appeared and keep running while it is hidden. Nothing is offered for a saved position under 5 seconds, past 90% of the duration, past the end of a file that has since been replaced, or where the size recorded beside the position no longer matches the file on disk
 10. One background HTTPS GET asks GitHub for the latest release metadata. If the version is newer, an update chip appears in the top bar and its button opens the releases page in the default browser. A copy bundled inside PDEA skips the request entirely
 
 ### User Interaction Walkthrough
@@ -675,7 +676,7 @@ cargo fmt
 
 The user can switch tools mid-draw — incomplete shapes (zero-length lines, single-point pen strokes) are automatically discarded. Undo (mouse button 3 or ↩ button) and redo (mouse button 4 or ↪ button) have a 50-step history. All keyboard shortcuts (P/L/A/R/C/H/0-9/Delete/Backspace/Escape) are isolated within draw mode — player shortcuts like Space, arrows, and L (loop) are blocked while the draw bar is open. The number keys `0`-`9` set the stroke size to the even sizes 2 to 20, which is what the `0`-`9` end of the 1-20 slider reaches; the slider itself reaches the odd sizes. Pressing Escape or clicking ✕ Exit returns to playback.
 
-**Fullscreen**: Press F, F11, or click the FS button. Escape leaves fullscreen. Fullscreen is never remembered between sessions, so a window quit while fullscreen opens windowed at the restored size next time.
+**Fullscreen**: Press F, F11, or click the FS button. Escape leaves fullscreen while the video is playing, and closes the shortcuts panel or draw mode instead when either of those is what is up. Fullscreen is never remembered between sessions, so a window quit while fullscreen opens windowed at the restored size next time.
 
 **Frame stepping**: The four `-1F`/`+1F` controls — two in the bottom row, two in the draw toolbar, with `,` and `.` firing the bottom pair — move by the file's own measured frame interval rather than by a fixed 1/60 second. The video pauses on each step.
 
@@ -703,10 +704,10 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**Released** — v2.1.1. The project version lives in `Cargo.toml` and nowhere else; `RELEASE_NOTES.md` covers what this release changed. v2.1.1 is a correction release over v2.1.0: no code changed. The release binary is rebuilt from source rather than reused from v2.1.0, because the version is compiled into the executable and the previous v2.1.1 installer shipped one still stamped 2.1.0, which made the app offer an update to itself. See Release order above.
+**Last release cut from this tree** — v2.1.1. **The version `Cargo.toml` carries now is 2.2.0**, and `RELEASE_NOTES.md` opens with what that release changed: resume playback position, window size and position memory, and frame stepping measured from the file, which are the three features this README describes in the sections above. Whether a GitHub release exists for 2.2.0 is not visible from this repository, which carries one tag, `v0.3.0`, whose name never matched the crate; take `Cargo.toml` for the version and `RELEASE_NOTES.md` for what each one changed. v2.1.1 was a correction release over v2.1.0 with no code changed, and the first v2.1.1 installer is reported to have been built around a binary still stamped 2.1.0, which would make the app offer an update to itself. That binary is not kept here and no commit, tag or artefact records it, so that half of the sentence is a report about the machine the release was cut on rather than something a reader can check from this tree, which is the framing `RELEASE_NOTES.md` gives it in the same words. See Release order above.
 
 Evidence:
-- `version = "2.1.1"` in `Cargo.toml`, which is what the installer is told to stamp
+- `version = "2.2.0"` in `Cargo.toml`, which is what the installer is told to stamp on the next build
 - An NSIS installer whose version is typed by hand on the `makensis` command line. Nothing reads `Cargo.toml` at build time, so the two match only if whoever types the number types the one in `Cargo.toml`, and a bare `makensis` falls back to the sentinel `0.0.0-UNSET`. See Release order above
 - Windows file associations registered per user for `.mp4`, `.m4v`, `.mov` and `.webm`, from the installer's optional components section, with no write anywhere near `UserChoice`
 - Manual QA guide in `TESTING.md` and sample videos in `TESTING_videos/`
@@ -719,23 +720,26 @@ Evidence:
 ## Known Limitations
 
 - **Single video file**: No playlist or folder support — the player accepts only one file path
-- **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, and `Error loading video` replaces the file name in the title capsule at the top left of the window. Nothing is written to the video area, which stays black. The top bar sits at `opacity: 0` until the chrome is shown and fades three seconds after the last input, and `onerror` never brings it back, so a message that arrives after the chrome has faded stays invisible until the mouse moves; in draw mode the whole top bar is hidden outright, the close button included. The window's OS title stays `Dr.Player` throughout, since it is set once at `src/main.rs:3766` and never changed, so "Error loading video" is in-page text and not the title bar. Registering a type is a claim the app has to be able to keep, and it has to hold on every machine carrying the app, not only the one it was tested on. MKV is the case in point: it plays on a current Evergreen Runtime, and `TESTING_videos/` ships two `.mkv` files for exactly that check, but an older Evergreen Runtime without Matroska support would refuse it, so it is deliberately not registered. `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent because neither engine plays them at all
+- **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, and `Error loading video` replaces the file name in the title capsule at the top left of the window. Nothing is written to the video area, which stays black. The top bar sits at `opacity: 0` until the chrome is shown and fades three seconds after the last input, and `onerror` never brings it back, so a message that arrives after the chrome has faded stays invisible until the mouse moves; in draw mode the whole top bar is hidden outright, the close button included. The window's OS title stays `Dr.Player` throughout, since it is set once at `src/main.rs:3824` and never changed, so "Error loading video" is in-page text and not the title bar. Registering a type is a claim the app has to be able to keep, and it has to hold on every machine carrying the app, not only the one it was tested on. MKV is the case in point: it plays on a current Evergreen Runtime, and `TESTING_videos/` ships two `.mkv` files for exactly that check, but an older Evergreen Runtime without Matroska support would refuse it, so it is deliberately not registered. `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent because neither engine plays them at all
 - **HEVC inside MP4 is conditional**: Windows needs the HEVC Video Extension installed and a working decoder path. H.264 in MP4, H.264 in MOV, VP8 and VP9 in WebM and H.264 in MKV were each played on Windows 11 with WebView2 Runtime 154; HEVC is the one combination here that keeps a documented failure mode (`0xC00DB3B3`, "Failed to create HEVC decoder instance")
 - **No audio device selection**: Uses system default audio output
 - **No subtitle support**: SRT, VTT, or embedded subtitles not rendered
 - **No keyboard shortcut customization**: All shortcuts are hardcoded
 - **No video format transcoding**: Relies entirely on the webview's native `<video>` element codec support
 - **Single-threaded drawing**: Canvas operations run on the UI thread; complex drawings may lag
-- **No shape editing**: Once committed, shapes cannot be edited (only deleted or moved)
+- **No shape editing**: once a shape is committed its geometry cannot be typed back in and neither can its colour, because a shape is drawn with the colour and the size that were in the toolbar at the moment and keeps them rather than following the toolbar afterwards. Two edits are possible, and both need the shape held down: the Hand tool moves it, and the scroll wheel changes its stroke size between 1 and 40, which reaches a stroke twice as thick as any the toolbar slider can set, because that slider stops at 20. Neither goes on the undo stack, so an undo taken after either of them steps back past the draw that made the shape rather than past the edit, and nothing re-enters a vertex, so there is no way to type a coordinate back in either
+- **Annotations do not follow the window**: resizing the window resizes the canvas and redraws every shape at the pixel coordinates it was stored with. Nothing is scaled and nothing is translated, so a shape drawn over the top of the picture stays over the top of the window when the window grows, and sits where it always sat if the window shrinks, no longer over the part of the frame it was marking. A stroke drawn after the resize does land under the pointer, because the pointer is measured against the canvas as it is now, so one drawing made across two window sizes is two sets of marks in two coordinate systems
 - **No text annotation in the shipped build**: the toolbar has no text tool and no key reaches the text branch, so text shapes cannot be created from the UI
 - **No automated tests**: the previous Vitest suite was deleted; coverage is manual, via `TESTING.md`
 - **macOS WKWebView-specific crashes**: Mitigated but the underlying platform quirks remain (documented in `WEBVIEW_QUIRKS.md`)
 - **Linux requires `libwebkit2gtk-4.1-dev`**: wry 0.39's `webkit2gtk` 2.0.1 dependency probes pkg-config `webkit2gtk-4.1`, which is the WebKitGTK 4.1 development package on Debian and Ubuntu
 - **Windows requires WebView2 runtime**: Not installed by default on all Windows versions
 - **No video file validation**: One handler writes one string for every error event on the element, so a damaged file and a format the engine refuses produce the identical words, "Error loading video", and nothing else. The message does not say which of the two happened
-- **Frame stepping moves by the measured frame interval, not by a guaranteed frame boundary**: all four call sites, the draw toolbar's `-1F`/`+1F` pair and the HUD's `-1F`/`+1F` pair that `.` and `,` click, now step by the file's own frame interval, derived from `requestVideoFrameCallback`, with the old fixed 1/60 second behind it wherever that never fires. `getVideoPlaybackQuality` is deliberately not the second source: its `totalVideoFrames` counts frames the element has created rather than frames the engine has presented, so the two counters drift apart as soon as anything is decoded ahead, and on one variable-frame-rate clip the same file measured 20.0000ms on one poll and 15.0000ms on the next. Where no trustworthy interval exists the fixed 1/60 step stands, which is right on a 60fps source and honest everywhere, where a measured-looking wrong number is neither. What the measurement buys is the right interval on 24, 25, 30, 50, 60 and 120 fps source. What it does not buy is a pixel-exact seek: `currentTime` is a position in seconds and the engine decodes from whatever frame is nearest, so a step lands on the boundary it was aimed at and the engine decides where that is
+- **Frame stepping moves by the measured frame interval, not by a guaranteed frame boundary**: all four controls, the draw toolbar's `-1F`/`+1F` pair and the HUD's `-1F`/`+1F` pair that `.` and `,` click, step by the file's own frame interval, derived from `requestVideoFrameCallback`, with the old fixed 1/60 second behind it wherever that never fires. `getVideoPlaybackQuality` is deliberately not the second source: its `totalVideoFrames` counts frames the element has created rather than frames the engine has presented, so the two counters drift apart as soon as anything is decoded ahead, and on one variable-frame-rate clip the same file measured 20.0000ms on one poll and 15.0000ms on the next. Where no trustworthy interval exists the fixed 1/60 step stands, which is right on a 60fps source and honest everywhere, where a measured-looking wrong number is neither. What the measurement buys is the right interval on 24, 25, 30, 50, 60 and 120 fps source. What it does not buy is a pixel-exact seek: `currentTime` is a position in seconds and the engine decodes from whatever frame is nearest, so a step lands on the boundary it was aimed at and the engine decides where that is
 - **Window resize uses rAF-throttled IPC**: May feel slightly laggy on slow systems
 - **Undo stack cleared on draw mode exit**: Annotations are not persisted between sessions. The window's geometry and each video's playback position are, in the state file described under Database; drawings are not
+- **A playback position is written by a pause, or by the window's own close button**: Alt+F4, the taskbar's own close and a crash all leave whatever the last pause recorded, because the OS close route writes the remembered geometry and the position map as they stand rather than asking the page where playback is first. Quitting without pausing first therefore reopens the file from the position it was last paused at, not from where it had actually reached
+- **Variable frame rate source is measured by its last two frames, not averaged over the file**: each callback divides the gap between the two most recent frames' own timestamps by the number of frames between them, that one number is then used for the whole file, and a sample landing within two per cent of one of the nominal rates is snapped to that rate exactly. A clip that changes rate partway through therefore steps at whichever rate its latest pair of frames spanned. A seek restarts the measurement window but keeps the value already measured, on the grounds that the rate belongs to the file rather than to where in the file the window happens to be standing
 - **Pre-commit hook runs `cargo check`**: May be slow on large changes; runs with stderr suppressed
 
 ---
