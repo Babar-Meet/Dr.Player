@@ -16,6 +16,22 @@ and deleted wholesale by 75e9ab8, which replaced this file with a single v1.0.0 
 shipped with no entry at all, and none has been added since. Each section says which of the two it is
 at the top.
 
+Dr.Player v3.1.0
+
+A visual and functional upgrade to the seek bar, rendering the file's own audio waveform directly on the timeline with background decoding, resilient fallback, and no external dependencies.
+
+Waveform Seek Bar
+The flat seek track in the bottom chrome now renders a real audio waveform matching the video's soundtrack, tall where loud and flat where quiet, in clean white for played segments and subtle grey (#646466) for unplayed segments. The waveform is computed from actual audio samples decoded from the media container, normalised against the loudest peak so quiet recordings maintain visible shape without clipping.
+
+Non-Blocking Background Decode with Resilient Fallback
+Audio extraction runs on a dedicated background thread using the bundled `symphonia` library. The UI remains responsive and immediately scrubbable from the instant the window opens; peaks stream incrementally in 512-peak batches at 20ms resolution across the event loop, filling the waveform in from left to right. When playing files without audio (or formats/containers not readable by the demuxer), the seek bar remains the original plain line. If the video fails to decode while audio succeeds, the bar preserves the fallback plain line rather than showing an empty canvas.
+
+Resource Bounding and Process Safety
+Audio extraction enforces a generous 2-hour budget (`WAVE_MAX_SECONDS = 7200.0`), preventing denial-of-service or unbounded memory growth from enormous or crafted audio files. The background thread is detached, meaning closing the window mid-decode exits immediately without hanging.
+
+Design Deviation Note:
+`design.md:124` specified that metadata (`Meta`) would be attached to the first `Chunk` only. The implementation instead sends a standalone `Meta` message before the first batch (carrying the container's declared duration) and another at the end of the decode (carrying the exact decoded duration). This allows the page to establish timeline boundaries immediately during streaming and settle accurately once decoding concludes.
+
 Dr.Player v3.0.0
 
 A major feature and UI overhaul introducing modern playback speed controls, YouTube-style hold-to-speed, intelligent control bar visibility, and portable state persistence.

@@ -43,6 +43,7 @@ The project is intended for:
 
 - **Windows file associations** — the installer registers Dr.Player for `.mp4`, `.m4v`, `.mov` and `.webm`, so it appears in Explorer's Open with menu, in the Open with dialog, and in Settings > Default apps. Windows reserves the choice itself, in `Explorer\FileExts\<ext>\UserChoice`, which the installer writes nothing near, so it takes nothing away from a program you already use
 - **Video playback** with play/pause, seek, frame stepping, volume control
+- **Waveform seek bar** — the seek strip draws the actual audio waveform of the file, decoded on a background thread so clicking to seek is available from the first moment the window opens. The waveform fills in from the left over a few seconds as the decode runs, tall where the audio is loud and flat where it is quiet. Files with no audio, or containers the decoder cannot read, fall back silently to the plain line that the bar always was; there is no spinner, no error, and no empty box
 - **Frame stepping at the file's own rate** — the step is measured from the video itself through `requestVideoFrameCallback`, with the old fixed 1/60 second behind it for an engine that never calls back, so 24, 25, 30, 50, 60 and 120 fps source all step by one frame. The video element is still not asked to seek to a frame and does not promise to land on one
 - **Resume playback position** — a chip over the picture with one button on it, labelled `Continue from 00:12:34`, offering to carry on from where a file was left, while the video plays from 0:00 as always. Written on pause and when the window is closed through its own close button. Cleared rather than written when a video reaches its end, so a finished file is never offered back, and a file reaching its end is the only thing that clears one at all: the chip's own ten seconds and a click anywhere on the picture both take the chip away and change nothing else, because neither of them is a refusal. Never written while loop is on. It is not put up at all when there is nothing worth putting it up for, and none of the four is a decision the viewer makes: a position barely into the file, where a prompt would be noise over the opening; a file the viewer has already watched most of the way through and is opening again to watch it whole, which is why the usual rule that hides only the last few seconds is the wrong one here; a stored position past where the file now ends, which is what a file that has since been replaced by a shorter one looks like; and an entry whose recorded size no longer matches the file on disk, so a name that now belongs to different video inherits nothing. Hiding the chrome on purpose, with H or the eye button, takes the chip down with it, because someone who asked for a clean screen should not be left with a button over it, and bringing the chrome back inside the chip's own ten seconds brings the chip back. The three second idle fade leaves it alone, because hiding it there too would cut a ten second window down to three and the offer would be a flash rather than something to read
 - **Window size and position memory** — the last size and position are restored on the next launch, with the position dropped and the window opened centred on the primary monitor at the same size if the remembered rectangle would not land entirely on a monitor that is connected now, which matters more here than in most players because this window is frameless and a restored window on a monitor that has gone has no title bar to drag it back with. A remembered size that comes back under 200x120 falls back to the default instead, because that is the smallest shape that still holds both bars without them overlapping, so a remembered window is always big enough to grab. No window geometry is recorded while the window is full or while fill mode is shaping it, because then the window's size belongs to the monitor or to the video rather than to the owner. A playback position is still written in those two states, which rewrites the whole state file and carries the last remembered rectangle over it untouched, so what is on file goes on saying what the window looked like when its size was the owner's own
@@ -86,6 +87,8 @@ The project is intended for:
 | Random | rand 0.8 |
 | Icon Loading | ico 0.3 |
 | Build Resources | winres 0.1 (Windows .ico embedding) |
+| Audio Decode | symphonia 0.6 (AAC, MP3, isomp4, plus Vorbis, FLAC, ADPCM, PCM, MKV, OGG, WAV from defaults) |
+| TLS client | reqwest 0.12 with rustls-tls (no OpenSSL) |
 | Installer | NSIS (installer/DrPlayer.nsi) |
 | File associations | Windows registry under `HKCU\Software\Classes`, plus one value under `HKCU\Software\RegisteredApplications`, written by the installer, per user, never elevated |
 | Persistent storage | One portable JSON file (`state.json`) stored directly in the executable's directory (with automatic migration from `%APPDATA%`), holding window geometry, playback position per file, and global temporary speed setting. No database, no schema, nothing to migrate |
@@ -98,7 +101,8 @@ The project is intended for:
 ```
 Dr.Player/
 ├── src/
-│   └── main.rs                  # Single Rust source file: the embedded UI and all backend code
+│   ├── main.rs                  # Application entry point: the embedded HTML/CSS/JS UI and all backend wiring
+│   └── waveform.rs              # Audio waveform extractor: decodes the file's own audio track on a background thread
 ├── installer/
 │   └── DrPlayer.nsi             # NSIS installer; version passed in with -DAPP_VERSION
 ├── docs/
@@ -125,9 +129,12 @@ Dr.Player/
 
 ### Key File Explanations
 
-**`src/main.rs`** — The entire application in a single file. Contains:
+**`src/main.rs`** — The application entry point and orchestration layer. Contains:
 - A `const HTML: &str` embedding the complete HTML, CSS, and JavaScript UI
 - All Rust backend code for CLI parsing, window management, HTTP server, the optional update check, and IPC
+- `mod waveform;` at line 2, pulling in the extractor below
+
+**`src/waveform.rs`** — The audio waveform extractor. Runs on one detached background thread, reads the file's own first audio track through symphonia, and emits peak batches to the page over the existing event-loop proxy. Has no knowledge of the window, the webview, or any UI.
 - `build.rs` — On Windows, compiles `resources/icon.ico` into the binary as the application icon
 
 **`docs/WEBVIEW_QUIRKS.md`** — Documents known cross-platform issues with WKWebView (macOS), WebKitGTK (Linux), and WebView2 (Windows), along with their workarounds.
@@ -309,7 +316,7 @@ The inline `<script>` block contains all application logic organized into these 
 
 #### Video Player Module
 - **Elements**: `<video id="v">`, HUD buttons (play/pause, seek -5s/+5s, frame step -1F/+1F, rate field, volume, loop, fullscreen)
-- **Key functions**: `showUI()`, `updateSeekbar()`, `seekFromEvent()`, `setVol()`, `volFromE()`
+- **Key functions**: `showUI()`, `updateSeekbar()`, `seekFromEvent()`, `paintWaveform()`, `setVol()`, `volFromE()`
 - **Events**: `timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`, `onerror`
 - **Autoplay fallback**: Attempts unmuted playback; if rejected, mutes and retries
 
@@ -386,6 +393,7 @@ The application uses a single IPC channel via `window.ipc.postMessage()`.
 | `'resume_save:{seconds}'` | Record where playback was left in this file | Parses the number, drops anything that is not one or is not past the start, then stores it against this launch's path, which is the canonical one where the file could be resolved and the path exactly as typed where it could not, together with the file's size, evicts the oldest entry past 200 files, and writes the state file |
 | `'resume_clear'` | Forget this file's saved position | Removes the entry and writes the state file, and only if there was one. The page sends this when the video reaches its end, which is now the only thing that sends it |
 | `'open_release_page'` | Open the releases page in the default browser | `ShellExecuteW` with the open verb on Windows, and the platform's own launcher, `open` on macOS and `xdg-open` on Linux, elsewhere. Never the webview, so the video is not navigated away from under the person watching it |
+| `'wave_ready'` | Signal that the webview page is ready to receive waveform batches | Spawns a background thread to decode audio via symphonia and emit peak batches to the event loop |
 
 **Response format**: No return value (fire-and-forget). Messages are forwarded from `with_ipc_handler` to the tao event loop via `proxy.send_event()`.
 
@@ -429,7 +437,7 @@ Every failure is silent and none of them can stop the app: a missing file, a fil
 
 ### `Cargo.toml`
 - **Package**: `dr-player`, Rust 2021 edition. The `version` field here is the source of truth for the project version. One other build input carries a copy of the number: the usage comment at the top of `installer/DrPlayer.nsi` shows `makensis "-DAPP_VERSION=2.1.1" installer\DrPlayer.nsi`. See Release order for why that copy has to be moved in step with this one.
-- **Dependencies**: clap 4 (derive), tokio 1 (rt-multi-thread, macros, net), axum 0.7, tower-http 0.5 (fs), wry 0.39 (fullscreen), tao 0.28, ico 0.3, serde_json 1, rand 0.8, reqwest 0.12 (rustls-tls, default features off)
+- **Dependencies**: clap 4 (derive), tokio 1 (rt-multi-thread, macros, net), axum 0.7, tower-http 0.5 (fs), wry 0.39 (fullscreen), tao 0.28, ico 0.3, serde_json 1, rand 0.8, reqwest 0.12 (rustls-tls, default features off), symphonia 0.6 (features = ["aac", "isomp4", "mp3"], default features kept)
 - **Build deps**: winres 0.1 (Windows only)
 
 ### `installer/DrPlayer.nsi`
@@ -453,6 +461,12 @@ Every failure is silent and none of them can stop the app: a missing file, a fil
 - `GEOMETRY_SETTLE = 500ms` — how long the window has to stop moving before its geometry is written, so a drag does not put a disk write inside itself
 - `MAX_SAVED_POSITIONS = 200` — how many files keep a playback position
 - `UPDATE_TIMEOUT` — 5s ceiling on the one update-check request
+- `WAVE_BUCKET_SECONDS = 0.02` — length of one bucket in seconds (20ms fixed window)
+- `WAVE_BATCH_PEAKS = 512` — peaks per message across the bridge
+- `WAVE_CSS_HEIGHT = 24` — height in CSS pixels of the waveform canvas (`#seek-wave`)
+- `WAVE_QUIET_FLOOR = 0.002` — linear amplitude threshold below which track is rendered as silence
+- `WAVE_MIN_HALF_PX = 1` — minimum half-height in device pixels (silence and not yet decoded)
+- `WAVE_MAX_SECONDS = 7200.0` — maximum decoded audio duration (2 hours cap)
 - Content Security Policy embedded in an HTML `<meta>` tag, as one string: `default-src 'self' 'unsafe-inline' http://127.0.0.1:*; media-src http://127.0.0.1:*; connect-src http://127.0.0.1:*; script-src 'unsafe-inline';`
 
 ### `.gitignore`
@@ -488,14 +502,16 @@ Every failure is silent and none of them can stop the app: a missing file, a fil
 | `serde_json` | 1 | JSON serialization (escapes URLs/titles for JS) |
 | `rand` | 0.8 | Random token generation for video URL |
 | `reqwest` | 0.12 | HTTPS client for the optional update check. Default features off, rustls-tls on, so a Windows binary needs no OpenSSL |
+| `symphonia` | 0.6 | Audio demuxing and decoding for seek bar waveform. AAC, MP3, isomp4 requested; default features kept on so MKV, OGG, RIFF/WAV, Vorbis, FLAC, ADPCM and PCM decode rather than falling back |
 
 ### Internal Dependencies
 
-The entire application is **self-contained in a single Rust source file**. The internal dependency chain is:
-1. `main()` depends on all modules (orchestration)
-2. JavaScript modules depend on each other through closure-captured variables
-3. Rust → JS communication goes through initialization script (`with_initialization_script`)
-4. JS → Rust communication goes through IPC (`postMessage` → `with_ipc_handler` → event loop)
+The application is structured into **two Rust source files**:
+1. `src/main.rs`: `main()` orchestration, window and webview creation, HTTP server, embedded UI (HTML/CSS/JS), and IPC event loop handling
+2. `src/waveform.rs`: detached background thread extracting audio peaks from the file via `symphonia` and sending batches across `EventLoopProxy<String>`
+3. JavaScript modules depend on each other through closure-captured variables
+4. Rust → JS communication goes through initialization script (`with_initialization_script`) and `evaluate_script`
+5. JS → Rust communication goes through IPC (`postMessage` → `with_ipc_handler` → event loop)
 
 ---
 
@@ -651,7 +667,7 @@ cargo fmt
 5. A frameless tao window is created with the application icon loaded from `resources/icon.ico`, at the remembered inner size or the default 1280×720 logical pixels, and moved to the remembered position when that rectangle still fits entirely on a monitor that is connected now, or opened centred on the primary monitor at the same size when it does not
 6. The wry webview loads the embedded HTML — a complete video player UI with:
    - Video element (`<video id="v">`), top bar (title capsule, help, hide, fill, draw, minimize, close buttons) and the optional update chip
-   - Bottom chrome, one slim flat row: play/pause, the two time readouts around a full-width timeline strip, -5s, +5s, -1F, +1F, the playback rate field, volume, loop, fullscreen
+   - Bottom chrome, one slim flat row: play/pause, the two time readouts bracketing the waveform seek bar (the file's own audio drawn as a clickable strip; a plain grey line where no audio is available), -5s, +5s, -1F, +1F, the playback rate field, volume, loop, fullscreen
    - Drawing canvas overlay with annotation toolbar (6 tools, color swatches, size slider, undo/redo/clear, seek/step, exit)
 7. The initialization script calls `window.loadVideo(url)`, `window.setTitle(name)` and `window.setResumePosition(seconds)` after `DOMContentLoaded`
 8. The video starts playing with autoplay enabled. If the browser blocks audio autoplay, the video is muted and playback retried
@@ -707,10 +723,10 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**The version `Cargo.toml` carries now is 3.0.0**, and `RELEASE_NOTES.md` opens with what that release changed: hold-for-speed playback, redesigned glassmorphic speed slider, intelligent pause UI visibility, and portable state persistence, which are described in the sections above. See Release order above.
+**The version `Cargo.toml` carries now is 3.1.0**, and `RELEASE_NOTES.md` opens with what that release changed: the waveform seek bar with background audio decode and fallback to the plain line. See Release order above.
 
 Evidence:
-- `version = "3.0.0"` in `Cargo.toml`, which is what the installer is told to stamp on the next build
+- `version = "3.1.0"` in `Cargo.toml`, which is what the installer is told to stamp on the next build
 - An NSIS installer whose version is typed by hand on the `makensis` command line. Nothing reads `Cargo.toml` at build time, so the two match only if whoever types the number types the one in `Cargo.toml`, and a bare `makensis` falls back to the sentinel `0.0.0-UNSET`. See Release order above
 - Windows file associations registered per user for `.mp4`, `.m4v`, `.mov` and `.webm`, from the installer's optional components section, with no write anywhere near `UserChoice`
 - Manual QA guide in `TESTING.md` and sample videos in `TESTING_videos/`
@@ -722,6 +738,7 @@ Evidence:
 
 ## Known Limitations
 
+- **Audio waveform cannot be produced for unsupported audio streams or video-only files**: If a file lacks an audio stream, or if its container/codec cannot be demuxed or decoded by symphonia, the seek bar silently falls back to the original plain line. There is no error message, no dialog, and no empty box. Audio tracks longer than 2 hours (`WAVE_MAX_SECONDS = 7200.0`) are capped cleanly, drawing what was decoded and rendering a flat line across the remainder.
 - **Single video file**: No playlist or folder support — the player accepts only one file path
 - **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, and `Error loading video` replaces the file name in the title capsule at the top left of the window. Nothing is written to the video area, which stays black. The top bar sits at `opacity: 0` until the chrome is shown and fades three seconds after the last input, and `onerror` never brings it back, so a message that arrives after the chrome has faded stays invisible until the mouse moves; in draw mode the whole top bar is hidden outright, the close button included. The window's OS title stays `Dr.Player` throughout, since it is set once at `src/main.rs:4811` and never changed, so "Error loading video" is in-page text and not the title bar. Registering a type is a claim the app has to be able to keep, and it has to hold on every machine carrying the app, not only the one it was tested on. MKV is the case in point: it plays on a current Evergreen Runtime, and `TESTING_videos/` ships two `.mkv` files for exactly that check, but an older Evergreen Runtime without Matroska support would refuse it, so it is deliberately not registered. `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent because neither engine plays them at all
 - **HEVC inside MP4 is conditional**: Windows needs the HEVC Video Extension installed and a working decoder path. H.264 in MP4, H.264 in MOV, VP8 and VP9 in WebM and H.264 in MKV were each played on Windows 11 with WebView2 Runtime 154; HEVC is the one combination here that keeps a documented failure mode (`0xC00DB3B3`, "Failed to create HEVC decoder instance")

@@ -1,5 +1,5 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
-
+mod waveform; // the seek bar's audio decode; it is deliberately not in the HTML below, and says why in its own header
 const HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -760,7 +760,9 @@ body.fastmode .fast-panel {
    the width breakpoints are what decide when it has given up enough. Both the click and the drag
    measure against this element's own getBoundingClientRect and normalise the pointer into 0 to 1, so
    whatever sits to the left of it moves the rectangle without moving the mapping: the track's zero
-   is its own left edge wherever that lands. */
+   is its own left edge wherever that lands. The waveform canvas is positioned against this same box
+   with no inset of any kind, so it spans exactly the same rectangle and the mapping above it is
+   unchanged by it being there. */
 .seekbar-container {
     flex: 1;
     min-width: 0;
@@ -785,29 +787,45 @@ body.fastmode .fast-panel {
 .seekbar-container:hover .seek-track {
     height: 6px;
 }
-.seek-fill {
+/* The waveform, which is the same control with the track's own audio drawn across it, and which
+   exists only once a decoder has found some. 24 tall is the number the paint below is written
+   against: the container's floor is 28, so 24 leaves 2px of the row's own backing above and below
+   the tallest column and the 41px row is not moved by a pixel.
+
+   Absolute, with both horizontal offsets declared, for three reasons at once. Its left edge is
+   therefore the container's left edge, which is what the seek mapping below measures against: a
+   canvas given any padding, border or inset would shift that mapping's zero and every seek would
+   land late, by more the further right it was pressed, with nothing anywhere to say so. width:
+   auto is stated rather than left out because a canvas carries an intrinsic 300 by 150, and a
+   300px-wide flex item in this row pushes every button to the right of it along, which nobody
+   would read as a missing CSS declaration. And being out of flow it contributes nothing to the
+   container's height, so the 28px that container has always floored itself at, and therefore
+   every button's y, is the number it was before this rule existed. pointer-events: none keeps the
+   press on the container, which is what the 28px hit area and the nine-pixel bottom margin above
+   both rest on.
+
+   The two greys are values already derived in this file rather than two new ones. The unplayed one
+   is exactly the track's: 35% white on the #111114 backing composites to #646466, 3.2:1, the 3:1 a
+   control has to reach, so the comment above .seek-track and the one at .vol-slider both stay true
+   and no second derivation exists to fall out of date. The played one is #fff, 18.9:1 on the same
+   backing, which is also what the playhead is drawn in so that it stays the same white against
+   either side of the boundary.
+
+   The two states are one class on the container rather than two independent shows, so the bar can
+   never be half in each: the line is a real element being hidden and the canvas is a real element
+   being shown, and nothing here is ever drawn and then erased. */
+#seek-wave {
     position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 0%;
-    background: #e00;
-    border-radius: 2px;
-    pointer-events: none;
-}
-.seek-thumb {
-    position: absolute;
+    left: 0; right: 0;
     top: 50%;
-    transform: translate(-50%, -50%);
-    width: 12px; height: 12px;
-    background: #fff;
-    border-radius: 50%;
-    left: 0%;
-    opacity: 0;
-    transition: opacity 0.1s;
+    transform: translateY(-50%);
+    width: auto;
+    height: 24px;
+    display: none;
     pointer-events: none;
 }
-.seekbar-container:hover .seek-thumb {
-    opacity: 1;
-}
+#seekbar-container.waveform .seek-track { display: none; }
+#seekbar-container.waveform #seek-wave { display: block; }
 
 /* Flat chips on the opaque backing, no tint of their own: a translucent fill over a translucent bar
    was only ever readable because of what showed through, and nothing shows through any more. The
@@ -1708,10 +1726,13 @@ body.drawmode #hud {
         <span class="seek-time" id="tc">00:00:00</span>
 
         <div class="seekbar-container" id="seekbar-container">
-            <div class="seek-track">
-                <div class="seek-fill" id="seek-fill"></div>
-                <div class="seek-thumb" id="seek-thumb"></div>
-            </div>
+            <!-- The plain line and the waveform are both always in the DOM and the container
+                 carries one class that chooses between them, so the fallback is a real element
+                 being shown rather than a drawn state being erased. Neither is named, focusable
+                 or given a role: they are the same unnamed generic nodes the bar has always been,
+                 so nothing leaves the accessibility tree when one replaces the other. -->
+            <div class="seek-track" id="seek-track"></div>
+            <canvas id="seek-wave"></canvas>
         </div>
 
         <span class="seek-time" id="tr">-00:00:00</span>
@@ -2505,25 +2526,34 @@ function fmt(s) {
 }
 
 /* ====================== SEEKBAR ====================== */
+/* The bar is one control and it has always been one: the same 28px target, the same container
+   rect, the same 0 to 1 mapping, the same two readouts. What is drawn inside it changed, not what
+   it does. The mousedown stays on the container rather than moving onto the canvas, because a 24px
+   canvas in a 28px box is 2px of dead strip top and bottom and the target would silently drop to
+   exactly WCAG 2.2's 24 by 24 floor with no slack. */
 const seekContainer = document.getElementById('seekbar-container');
-const seekFill = document.getElementById('seek-fill');
-const seekThumb = document.getElementById('seek-thumb');
+const seekTrackEl = document.getElementById('seek-track');
+const waveCanvas = document.getElementById('seek-wave');
+const waveCtx = waveCanvas.getContext('2d');
 const tcEl = document.getElementById('tc');
 const trEl = document.getElementById('tr');
 let seeking = false;
 
 function updateSeekbar() {
     if (!vid.duration) return;
-    const pct = (vid.currentTime / vid.duration) * 100;
-    seekFill.style.width = pct + '%';
-    seekThumb.style.left = pct + '%';
     tcEl.textContent = fmt(vid.currentTime);
     trEl.textContent = '-' + fmt(vid.duration - vid.currentTime);
+    paintWaveform();
 }
 vid.addEventListener('timeupdate', updateSeekbar);
 vid.addEventListener('loadedmetadata', updateSeekbar);
 
 function seekFromEvent(e) {
+    // The guard updateSeekbar has always had, and this needed before it did not: before the
+    // waveform the target was a 4px line that was hard to hit by accident, and now it is a 24px
+    // one that is not. vid.duration is NaN until loadedmetadata, and writing currentTime = NaN
+    // puts the element into a state no later seek recovers it from.
+    if (!vid.duration) return;
     const rect = seekContainer.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     vid.currentTime = pos * vid.duration;
@@ -2538,6 +2568,166 @@ document.addEventListener('mousemove', (e) => {
     if (seeking) seekFromEvent(e);
 });
 document.addEventListener('mouseup', () => { seeking = false; });
+
+/* ====================== WAVEFORM ====================== */
+/* The peaks of the file's own first audio track, decoded in Rust on a thread that is started only
+   after this page says it is ready and arriving here in batches of 512 at 20ms a column. Four
+   pieces of state and nothing else: the columns, the bucket width they are measured in, the
+   decoded length of the track, and the loudest sample seen so far.
+
+   That last one is the normalisation, and it is a deliberate trade. Peaks arrive as linear
+   amplitudes in 0 to 1, which is exactly what the decoder hands back, and dividing by the running
+   maximum is what makes a quiet recording read as a quiet recording with a shape rather than as an
+   absent bar. What it costs is that two files shown by the same player each show their own
+   maximum, so a quiet file looks as tall as a loud one. The peaks keep full resolution either way;
+   only the display is relative to the file. The other cost is visible for about a second: the
+   maximum grows as batches land, so the bar can rescale once when a louder sample arrives. On real
+   content the first batch almost always carries one, so it settles immediately.
+
+   Below the quiet floor there is nothing to normalise against and every column is drawn at the
+   minimum instead. A bucket at 0.001 of full scale is a hundredth of a pixel and rounds to
+   nothing, so a file that is silence rather than a recording would otherwise draw an empty bar,
+   and a flat thin line says what is actually there. */
+const WAVE_CSS_HEIGHT = 24;      // the height: 24px in the #seek-wave rule above
+const WAVE_MIN_HALF_PX = 1;      // one device pixel: silence, and not yet decoded
+const WAVE_QUIET_FLOOR = 0.002;  // under this the file is silence, not a quiet recording
+const WAVE_PLAYED = '#ffffff';   // 18.9:1 on #111114, and the playhead's own colour
+const WAVE_UNPLAYED = '#646466'; // 35% white on #111114, 3.2:1: the track's own value
+
+let wavePeaks = [];
+let waveBucket = 0;
+let waveDuration = 0;
+let waveMax = 0;
+
+function showWave(on) {
+    // One class, so the plain line and the canvas can never both be showing or both be hidden.
+    seekContainer.classList.toggle('waveform', !!on);
+}
+
+function paintWaveform() {
+    // Nothing decoded yet, or nothing to decode into: the bar is the plain line and this costs
+    // one test. That is the whole of what a file with no audio costs, four times a second.
+    //
+    // vid.duration is NaN until loadedmetadata, and for a file the engine refuses to play it stays
+    // NaN for the whole session, because onerror only rewrites the title. The guard above is
+    // therefore also the thing that decides which of the two states the bar is in, and it is the
+    // reason the class below is set here rather than when the peaks arrived. Every term in it is a
+    // "not yet" that only ever resolves into ready, so the toggle is reached by the repaints that
+    // fill it in and by nothing else.
+    if (!waveBucket || !wavePeaks.length || !vid.duration) return;
+
+    // Measured on every call rather than cached behind a resize listener, because this is the one
+    // canvas in this file that has to be right on a display that is not at 100%: a change of
+    // devicePixelRatio fires no event that all three webview engines agree on, and re-reading one
+    // rectangle is cheaper than the media-query bookkeeping a listener would be. The rectangle is
+    // the container's and not the canvas's, so it is the same one the click and the drag measure.
+    const cssW = seekContainer.getBoundingClientRect().width;
+    if (!(cssW > 0)) return;
+    const dpr = window.devicePixelRatio || 1;
+    const bw = Math.round(cssW * dpr);
+    const bh = Math.round(WAVE_CSS_HEIGHT * dpr);
+    if (waveCanvas.width !== bw || waveCanvas.height !== bh) {
+        waveCanvas.width = bw;
+        waveCanvas.height = bh;
+    }
+    const W = waveCanvas.width;
+    const H = waveCanvas.height;
+
+    // Device pixels throughout, because fillRect paints into the backing store and no scale is
+    // applied to this canvas's context. At DPR 1 that is floor(24/2) - 1 = 11, so a full column is
+    // 22 of the 24 and the playhead keeps a pixel of air above and below it.
+    const mid = Math.floor(H / 2);
+    const maxHalf = Math.max(WAVE_MIN_HALF_PX, mid - 1);
+    const minHalf = WAVE_MIN_HALF_PX;
+
+    // Where the audio ends, measured against what is actually known: while the decode is still
+    // running that is simply how far it has got, and afterwards it is the decoded length. Taking
+    // the smaller of the two means the boundary only ever moves right, and it moves to the true
+    // end of the track when the last batch lands. A file whose audio is shorter than its video
+    // shows the waveform stopping where the sound stops and a flat run to the right, which is
+    // information rather than a defect.
+    const received = wavePeaks.length;
+    const decoded = received * waveBucket;
+    const audioEnd = waveDuration > 0 ? Math.min(waveDuration, decoded) : decoded;
+
+    const quiet = waveMax < WAVE_QUIET_FLOOR;
+    const duration = vid.duration;
+    const progressSeconds = vid.currentTime;
+    const playX = Math.max(0, Math.min(W, Math.round((progressSeconds / duration) * W)));
+
+    // The one class that chooses between the two states is set here, after every guard above and
+    // not on the batch that arrived. A file whose audio decodes and whose video the webview refuses
+    // has peaks and no duration at all: sample-5s.avi, sample-15s.avi and
+    // test1-matroskaconformance.mkv are three committed fixtures in exactly that state, and
+    // toggling on arrival hid the plain line behind a canvas this function then returned out of,
+    // which is an empty 28px gap where the only timeline control was.
+    showWave(true);
+    waveCtx.clearRect(0, 0, W, H);
+    for (let x = 0; x < W; x++) {
+        const t0 = (x / W) * duration;
+        const t1 = ((x + 1) / W) * duration;
+        // Past the end of the audio there is no sound to draw, and the minimum line is the truth
+        // about it rather than an absence.
+        let hh = minHalf;
+        if (t0 < audioEnd) {
+            // Max over the buckets this column covers, never the mean and never the last: the
+            // mean drops a transient that lands in one bucket of five, and the last depends on
+            // how the rounding fell. A column wider than one bucket gives its neighbours the
+            // same value and the bar is flat-topped between them, which is also honest.
+            const i0 = Math.floor(t0 / waveBucket);
+            const i1 = Math.max(i0 + 1, Math.ceil(t1 / waveBucket));
+            const stop = Math.min(i1, received);
+            let peak = 0;
+            for (let i = i0; i < stop; i++) {
+                if (wavePeaks[i] > peak) peak = wavePeaks[i];
+            }
+            // i0 at or past what has arrived is the decode not having reached this time yet,
+            // which is what fills the bar in from the left over the following seconds.
+            const value = (quiet || i0 >= received || waveMax <= 0) ? 0 : peak / waveMax;
+            hh = Math.round(value * maxHalf);
+            if (hh < minHalf) hh = minHalf;
+            if (hh > maxHalf) hh = maxHalf;
+        }
+        // The played and unplayed colours split between two columns rather than across one, so
+        // the playhead at the same x always lands on the change instead of half a pixel into it.
+        waveCtx.fillStyle = t0 < progressSeconds ? WAVE_PLAYED : WAVE_UNPLAYED;
+        waveCtx.fillRect(x, mid - hh, 1, hh * 2);
+    }
+    // The playhead is drawn here and is not an element, because its x is
+    // round(progress * W) against the same backing store the columns are on: a div at left: N%
+    // is not sub-pixel and cannot be snapped to this bucket grid.
+    waveCtx.fillStyle = WAVE_PLAYED;
+    waveCtx.fillRect(playX, 0, Math.max(1, Math.round(dpr)), H);
+}
+
+window.setWaveform = rec => {
+    if (rec.failed) {
+        // A decode that could not finish gives the plain line back and forgets everything it
+        // had: half a waveform measured against the video's clock claims audio where there is
+        // none. This is also the one path a file with no audio, an unreadable track and a
+        // container this build cannot demux all arrive at, and none of them is anything to show.
+        wavePeaks = []; waveBucket = 0; waveDuration = 0; waveMax = 0;
+        showWave(false);
+        return;
+    }
+    // The bucket width is stated by the sender rather than assumed here, so there is one number
+    // and one place it is written down. The track's length is read whenever a positive one
+    // arrives: the first Meta carries what the container claims and the last carries what was
+    // decoded, and the decoded one wins.
+    if (typeof rec.bucketSeconds === 'number' && rec.bucketSeconds > 0) waveBucket = rec.bucketSeconds;
+    if (typeof rec.durationSeconds === 'number' && rec.durationSeconds > 0) waveDuration = rec.durationSeconds;
+    if (Array.isArray(rec.peaks)) {
+        const start = typeof rec.start === 'number' && rec.start >= 0 ? rec.start : wavePeaks.length;
+        for (let i = 0; i < rec.peaks.length; i++) {
+            const p = rec.peaks[i];
+            wavePeaks[start + i] = p;
+            if (p > waveMax) waveMax = p;
+        }
+    }
+    // The waveform class is not set here. paintWaveform is what knows whether there is anything to
+    // paint into yet, and a batch that arrived before loadedmetadata does not.
+    paintWaveform();
+};
 
 /* ====================== -5s / +5s ====================== */
 document.getElementById('bseek-back').onclick = () => {
@@ -3829,6 +4019,12 @@ function resizeDrawCanvas() {
     renderAll();
 }
 window.addEventListener('resize', resizeDrawCanvas);
+// The waveform repaints on the same event and for the same reason, and lives here so both canvases
+// are told about one width change in one place: it re-aggregates the same fixed 20ms buckets into
+// however many columns the bar now has, which is a max over a couple of dozen floats per column.
+// Its own paint re-measures the container's rectangle and the device pixel ratio on every call, so
+// unlike this one it also self-corrects on a display whose scale has changed.
+window.addEventListener('resize', paintWaveform);
 // Fill mode watches the same event for a shape it did not ask for
 window.addEventListener('resize', checkFillShapeLock);
 resizeDrawCanvas();
@@ -4172,6 +4368,13 @@ vid.addEventListener('play', () => {
 
 window.loadVideo = url => { vid.src = url; vid.play().catch(()=>{}); };
 window.setTitle  = name => { document.getElementById('title').textContent = name; };
+// The audio decode starts here and not before: the window pushes its batches into this page with
+// an evaluate_script, and one that lands before this document has finished parsing is lost for the
+// rest of the session, which is the exposure the update prompt's own pending flag works around.
+// This post is the other answer to it. It also keeps the decode off the CPU through page load, so
+// the first second of time-to-first-frame is spent on the picture, and it runs during parsing,
+// which is after the section above has defined window.setWaveform.
+if (window.ipc && window.ipc.postMessage) window.ipc.postMessage('wave_ready');
 </script>
 </body>
 </html>
@@ -4221,6 +4424,46 @@ fn push_fullscreen_state(window: &Window, webview: &wry::WebView) {
     let _ = webview.evaluate_script(&format!("window.setFullscreenState({});", state));
 }
 
+// One peak batch as one user event, for the same reason the three other messages that carry
+// something to the page are Strings on this one channel: evaluate_script cannot be called from
+// off the event loop, and this is built on the decode thread where the window and the webview do
+// not exist. The prefix is what the arm below matches on and matches no existing message.
+//
+// The peaks go out at three decimal places and the numbers are the record, so this is the one
+// place where rounding happens and it happens on the way to the wire rather than in the decode.
+// It costs nothing that can be seen: a 24px canvas is 11 device pixels from the middle to a full
+// column, so one pixel is 1/11 = 0.0909 of full scale and 0.001 is about eighty times finer than
+// a single pixel. Base64 of bytes would be a sixth of the bytes and would put an encoding
+// convention into the interface and a decode step into the page to save 147 KB delivered once.
+fn wave_event(msg: &waveform::WaveMsg) -> String {
+    let mut fields = serde_json::Map::new();
+    match msg {
+        waveform::WaveMsg::Meta {
+            bucket_seconds,
+            duration_seconds,
+        } => {
+            fields.insert("bucketSeconds".into(), (*bucket_seconds).into());
+            fields.insert("durationSeconds".into(), (*duration_seconds).into());
+        }
+        waveform::WaveMsg::Chunk { start, peaks } => {
+            let rounded: Vec<f64> = peaks
+                .iter()
+                .map(|p| ((*p as f64) * 1000.0).round() / 1000.0)
+                .collect();
+            fields.insert("start".into(), (*start).into());
+            fields.insert("peaks".into(), rounded.into());
+        }
+        waveform::WaveMsg::Done => {
+            fields.insert("done".into(), true.into());
+        }
+        waveform::WaveMsg::Failed => {
+            fields.insert("failed".into(), true.into());
+        }
+    }
+    let body = serde_json::to_string(&serde_json::Value::Object(fields)).unwrap_or_default();
+    format!("wave:{body}")
+}
+
 // ==================== WHAT THE APP REMEMBERS ====================
 // Two things, in one file: where this window was left, and where playback was left in each file
 // that has been watched and not finished. One file rather than two because there is one helper
@@ -4230,7 +4473,7 @@ fn push_fullscreen_state(window: &Window, webview: &wry::WebView) {
 // It lives in the config directory of the user running it and nowhere else. The install directory
 // is owned by the installer and can be read-only, and a file the app cannot write is a file the
 // app does not keep. The path is worked out by hand rather than through a directory crate because
-// this program adds no dependency for anything, and these three are the three the platform
+// three path joins are not what a dependency is for, and these three are the three the platform
 // directories are: %APPDATA% on Windows, ~/Library/Application Support on macOS, and
 // $XDG_CONFIG_HOME or ~/.config on Linux.
 const STATE_FOLDER: &str = "Dr.Player";
@@ -4357,7 +4600,7 @@ fn write_state(
         );
     }
     if let Some(rate) = temp_rate {
-        if rate.is_finite() && rate >= 0.0625 && rate <= 16.0 {
+        if rate.is_finite() && (0.0625..=16.0).contains(&rate) {
             root.insert("temp_rate".to_string(), serde_json::json!(rate));
         }
     }
@@ -4781,6 +5024,11 @@ async fn main() -> wry::Result<()> {
     // check has to reach the event loop from off it: the request is made by a task, and the task
     // must not be the one holding the window up.
     let update_proxy = proxy.clone();
+    // The same clone for the same reason. The waveform's decode runs on its own thread and its
+    // batches come back through this proxy, so the thread can never touch the webview and the
+    // borrow checker is what proves it: nothing borrowed from main is reachable from a 'static
+    // spawn site, because the window and the webview are moved into the loop closure below.
+    let wave_proxy = proxy.clone();
 
     let app_icon = load_icon(include_bytes!("../resources/icon.ico"));
 
@@ -4828,7 +5076,7 @@ async fn main() -> wry::Result<()> {
         None => "null".to_string(),
     };
     let safe_temp_rate = match temp_rate {
-        Some(r) if r.is_finite() && r >= 0.0625 && r <= 16.0 => r.to_string(),
+        Some(r) if r.is_finite() && (0.0625..=16.0).contains(&r) => r.to_string(),
         _ => "2".to_string(),
     };
     let init_script = format!(
@@ -4910,7 +5158,37 @@ async fn main() -> wry::Result<()> {
                 _ => {}
             },
             Event::UserEvent(msg) => {
-                if msg == "close" {
+                if let Some(payload) = msg.strip_prefix("wave:") {
+                    // A batch, a Meta or a terminal event, from the decode thread. The body behind
+                    // the prefix is already JSON, so it is read back as JSON and written out as
+                    // JSON, escaped through serde_json exactly as the URL and the title are at
+                    // startup, so a peak can never be read as anything but JSON. A body that does
+                    // not parse is not handed to the page at all. The page is a const literal in
+                    // this same binary and never navigates, so there is no second implementation
+                    // this could disagree with.
+                    if let Ok(rec) = serde_json::from_str::<serde_json::Value>(payload) {
+                        let escaped = serde_json::to_string(&rec).unwrap_or_else(|_| "{}".to_string());
+                        let _ = webview.evaluate_script(&format!("window.setWaveform({escaped});"));
+                    }
+                } else if msg == "wave_ready" {
+                    // The page has parsed and window.setWaveform exists, so the decode can start.
+                    // Nothing here is joined: joining would make the close button wait out a full
+                    // decode of a 133 MB file, and S8 is a close within the first second, ten
+                    // times over. The thread owns the canonical path and this proxy and nothing
+                    // else; its file handle dies with it, and every send out of it after the
+                    // loop has ended fails and is discarded, which is what makes the detach
+                    // safe rather than merely convenient.
+                    let path = path.clone();
+                    let wave_proxy = wave_proxy.clone();
+                    std::thread::spawn(move || {
+                        let terminal = waveform::extract(path, |m| {
+                            let _ = wave_proxy.send_event(wave_event(&m));
+                        });
+                        // The terminal message goes out from here rather than from inside the
+                        // extraction, so a failure has one shape whichever path produced it.
+                        let _ = wave_proxy.send_event(wave_event(&terminal));
+                    });
+                } else if msg == "close" {
                     save_state_on_exit(&window, &mut remembered_rect, &positions, temp_rate, fill_mode);
                     *control_flow = ControlFlow::Exit;
                 } else if msg == "minimize" {
@@ -4939,7 +5217,7 @@ async fn main() -> wry::Result<()> {
                     fill_mode = false;
                 } else if let Some(rate_str) = msg.strip_prefix("temp_rate:") {
                     if let Ok(rate_val) = rate_str.parse::<f64>() {
-                        if rate_val.is_finite() && rate_val >= 0.0625 && rate_val <= 16.0 {
+                        if rate_val.is_finite() && (0.0625..=16.0).contains(&rate_val) {
                             temp_rate = Some(rate_val);
                             write_state(remembered_rect, &positions, temp_rate);
                         }
@@ -4963,7 +5241,7 @@ async fn main() -> wry::Result<()> {
                     if parts.len() == 3 {
                         if let (Ok(w), Ok(h)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
                             if is_postable_size(w, h) {
-                                let _ = window.set_inner_size(tao::dpi::LogicalSize::new(w, h));
+                                window.set_inner_size(tao::dpi::LogicalSize::new(w, h));
                             }
                         }
                     }

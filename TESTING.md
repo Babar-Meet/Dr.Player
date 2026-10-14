@@ -279,6 +279,7 @@ Run these after every code change to catch regressions fast.
 - [ ] **Undo/redo after clear** — clear canvas, then undo. Shapes should reappear.
 - [ ] **Backspace in draw mode**, no modifier held — clears all shapes and stays undoable.
 - [ ] **Fullscreen toggle in draw mode** — should be blocked (draw mode hides fullscreen). Verify closing draw mode then pressing F11 works.
+- [ ] **Waveform seek bar & fallback** — open a file with audio (e.g. `flower.mp4`): the waveform appears, filling in from the left, with loud parts tall and quiet parts flat; clicking or dragging to scrub lands accurately at the clicked timestamp. Open a file with no audio or unsupported audio (e.g. `sample_640x360.mkv`): the bar remains the plain grey line with no error, no dialog, and no empty gap.
 
 ---
 
@@ -309,14 +310,14 @@ ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
         -show_entries format=duration -of default=nw=1 <file>
 ```
 
-| File | Rate | Length | Offer band (5 s to 90%) |
-|------|------|--------|-------------------------|
-| `rabbit320.mp4`, `rabbit320.webm` | 30 fps | 7.800 s | 5 s – 7.02 s (narrow) |
-| `sample_640x360.mkv` | 29.97 fps | 13.346 s | 5 s – 12.01 s |
-| `sample_1280x720.mov` | 23.976 fps | 28.237 s | 5 s – 25.41 s (widest) |
-| `flower.mp4`, `flower.webm` | 29.97 fps | 5.055 s | **empty** — never offered |
-| `test-vp9.webm` | 24 fps | 2.000 s | **empty** — never offered |
-| `elephants_dream_1024x576_30s.mp4` | 24 fps | 653.792 s | 5 s – 588.41 s |
+| File | Rate | Length | Audio | Offer band (5 s to 90%) |
+|------|------|--------|-------|-------------------------|
+| `rabbit320.mp4`, `rabbit320.webm` | 30 fps | 7.800 s | AAC / Vorbis | 5 s – 7.02 s (narrow) |
+| `sample_640x360.mkv` | 29.97 fps | 13.346 s | **none** (fallback) | 5 s – 12.01 s |
+| `sample_1280x720.mov` | 23.976 fps | 28.237 s | **none** (fallback) | 5 s – 25.41 s (widest) |
+| `flower.mp4`, `flower.webm` | 29.97 fps | 5.055 s | AAC / Vorbis | **empty** — never offered |
+| `test-vp9.webm` | 24 fps | 2.000 s | **none** (fallback) | **empty** — never offered |
+| `elephants_dream_1024x576_30s.mp4` | 24 fps | 653.792 s | AAC | 5 s – 588.41 s |
 
 ### 7.1 Resume offer thresholds
 
@@ -420,6 +421,7 @@ For a fast regression check between builds:
 [ ] Redo (↪) — shape back
 [ ] Exit draw mode (Escape or ✕ Exit)
 [ ] Press Space — play/pause works
+[ ] Seek bar & waveform — on audio file, waveform renders and fills in; scrub lands where clicked; on file without audio, plain line displays with no gap
 [ ] Press L — loop toggles
 [ ] Fullscreen (F or F11)
 [ ] Escape from fullscreen

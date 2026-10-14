@@ -1,6 +1,6 @@
 [package]
 name = "dr-player"
-version = "3.0.0"
+version = "3.1.0"
 edition = "2021"
 
 [dependencies]
@@ -20,6 +20,19 @@ rand = "0.8"
 # the parsing. TLS roots still work through it; the system-proxy feature only reads the machine's
 # WPAD settings, and HTTP_PROXY and HTTPS_PROXY are honoured without it.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# The waveform's peaks are decoded from the file's own audio, on a background thread, and never from
+# a sample of the video. The three features named here are what the committed fixtures and the
+# owner's own files actually carry: AAC in the mp4s and movs, MP3 in the avis, and the isomp4
+# demuxer that has to be there to hand an AAC track over at all.
+#
+# symphonia's own default features are deliberately left on, so what actually compiles in is that
+# list plus the mkv, ogg and riff demuxers, the Vorbis, FLAC, ADPCM and PCM decoders, and the
+# APE/ID3v1/ID3v2 tag readers. A webm or mkv whose audio is Vorbis therefore gets a real waveform
+# rather than the plain line, which covers flower.webm, rabbit320.webm and every WAV in the world.
+# What that trades is a wider untrusted-bytes surface for the decoder to parse, and about ten more
+# packages in the lock file going into an installed binary. `default-features = false` with the
+# three above kept would shed those ten and put every one of those formats back on the fallback.
+symphonia = { version = "0.6", features = ["aac", "isomp4", "mp3"] }
 
 [build-dependencies]
 winres = "0.1"
