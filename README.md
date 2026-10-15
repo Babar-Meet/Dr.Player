@@ -2,6 +2,8 @@
 
 A desktop video player you can draw on top of. Windows, macOS and Linux.
 
+Download the latest release from https://drplayer.pages.dev.
+
 > ### Video formats
 >
 > **MP4, MOV and WebM play on Windows, macOS and Linux, though HEVC inside MP4 needs Microsoft's free add-on on Windows. MKV plays on Windows and Linux, but not on macOS, and 3GP plays on Linux only. `.avi`, `.wmv`, `.flv`, `.mpg`, `.mpeg`, `.m2v`, `.vob`, `.mts`, `.m2ts`, `.ts` and `.ogv` play on neither Windows nor macOS, and some of them can play on Linux.** Check the codec inside your file, not only its extension.
