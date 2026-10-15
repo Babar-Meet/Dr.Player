@@ -19,7 +19,12 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::fs;
+use std::io::{Read, Write};
+use std::hash::{Hash, Hasher};
 
+use lz4_flex;
+use serde::{Serialize, Deserialize};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{Track, TrackType};
@@ -48,21 +53,15 @@ pub const WAVE_BUCKET_SECONDS: f64 = 0.02;
 /// over a decode that takes seconds, on a loop that spends its life in `ControlFlow::Wait`.
 pub const WAVE_BATCH_PEAKS: usize = 512;
 
-/// How much audio one decode will read before it stops and emits what it has. Chosen, not measured.
-///
-/// Two things grow with the length of a track and neither is bounded by anything the file will do
-/// on its own: the decode holds one core for as long as the audio lasts, and the page's peak array
-/// grows at 50 entries a second of audio and is held for the life of the window. Two hours is
-/// 360,000 entries, about 2.9 MB of `f64`, read once per paint at 4 Hz, and a decode that stops
-/// there has cost seconds rather than hours. The longest committed fixture is 653.792 s
-/// (`elephants_dream_1024x576_30s.mp4`) and the owner's own large file is minutes, so nothing
-/// ordinary comes anywhere near it.
-///
-/// Reaching it is finishing, not failing, and it deliberately does not take the fallback. The last
-/// bucket is closed, what arrived is flushed, and the terminal message is `Done`, which is the same
-/// answer a track that ended on its own gives: the page draws what it has and lays the minimum line
-/// over the rest, which is what it already does for a file whose audio is shorter than its video.
-pub const WAVE_MAX_SECONDS: f64 = 7200.0;
+/// A long track is decoded in full rather than cut short, because the disk cache pays the cost
+/// once and because a waveform that stops halfway would be measured against a video-time axis it
+/// does not share. The file's own end is the only limit, so this is the largest value the
+/// per-packet comparison can hold rather than a number anybody chose.
+pub const WAVE_MAX_SECONDS: f64 = f64::MAX;
+
+/// First eight bytes of every cache file. A file that does not start with these is refused rather
+/// than parsed: a truncated or half-written copy is always a real possibility.
+const WAVE_CACHE_MAGIC: &[u8; 8] = b"DRWAVE01";
 
 /// What one message across the bridge carries. `Failed` is the fallback signal; see the note above.
 pub enum WaveMsg {
@@ -99,19 +98,89 @@ pub enum WaveMsg {
 ///
 /// The caller does not join the thread this runs on. Once the event loop is gone every send out of
 /// it fails and is discarded, and the file handle inside it is reclaimed with the process.
-pub fn extract(path: PathBuf, emit: impl Fn(WaveMsg)) -> WaveMsg {
+///
+/// A cache hit answers from disk in the same messages a decode would have produced and in the same
+/// order, so nothing above here can tell the two apart. A cache miss decodes and then writes what
+/// it decoded.
+pub fn extract(path: PathBuf, mut emit: impl FnMut(WaveMsg)) -> WaveMsg {
+    // Cache first: Meta, every chunk, the decoded Meta, Done. The page sees no difference from a
+    // decode that ran fast.
+    if let Some((peaks, duration_seconds, bucket_seconds, _max_peak)) = load(&path) {
+        emit(WaveMsg::Meta {
+            bucket_seconds,
+            duration_seconds,
+        });
+        for (i, batch) in peaks.chunks(WAVE_BATCH_PEAKS).enumerate() {
+            emit(WaveMsg::Chunk {
+                start: i * WAVE_BATCH_PEAKS,
+                peaks: batch.to_vec(),
+            });
+        }
+        emit(WaveMsg::Meta {
+            bucket_seconds,
+            duration_seconds,
+        });
+        return WaveMsg::Done;
+    }
+
     // Symphonia is third-party code over untrusted bytes, and a panic in it on a malformed file
     // would print through the hook in main and take the process down at close. There is no way to
     // stop a decoder panicking from inside its own loop, so the whole extraction is caught and a
     // panic becomes Failed: the plain line, and a line on stderr, which is this program's stated
     // diagnostic channel (README:49). A library bug is worth saying out loud; a crash is not.
-    match catch_unwind(AssertUnwindSafe(|| decode(&path, &emit))) {
+    //
+    // The collected set beside it is what the cache is written from. The page's own copies are the
+    // ones being drawn; these are only ever written to disk.
+    let mut peaks: Vec<WavePeak> = Vec::new();
+    let mut max_peak: WavePeak = 0.0;
+    let mut duration_seconds: f64 = 0.0;
+    let terminal = match catch_unwind(AssertUnwindSafe(|| {
+        let mut collect = |msg: WaveMsg| {
+            match &msg {
+                WaveMsg::Meta {
+                    duration_seconds: d,
+                    ..
+                } => {
+                    if *d > 0.0 {
+                        duration_seconds = *d;
+                    }
+                }
+                WaveMsg::Chunk { peaks: batch, .. } => {
+                    peaks.extend_from_slice(batch);
+                    for p in batch {
+                        if *p > max_peak {
+                            max_peak = *p;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            emit(msg);
+        };
+        decode(&path, &mut collect)
+    })) {
         Ok(terminal) => terminal,
         Err(_) => WaveMsg::Failed,
+    };
+
+    // A finished decode is worth keeping and a failed one is not: a half waveform measured against
+    // the video's clock would claim audio where there is none, which is the same reason the page
+    // throws away what it had when a failure arrives.
+    if let WaveMsg::Done = terminal {
+        if !peaks.is_empty() && duration_seconds > 0.0 {
+            save(
+                &path,
+                &peaks,
+                duration_seconds,
+                WAVE_BUCKET_SECONDS,
+                max_peak,
+            );
+        }
     }
+    terminal
 }
 
-fn decode(path: &Path, emit: &impl Fn(WaveMsg)) -> WaveMsg {
+fn decode(path: &Path, emit: &mut impl FnMut(WaveMsg)) -> WaveMsg {
     // The file handle lives here, in this thread, and goes when the thread does.
     // MediaSourceStream reads through the Box rather than slurping it, so a 133 MB file never sits
     // in memory and the decode's cost is the decode and not the read.
@@ -258,7 +327,7 @@ const WAVE_DENOM: u64 = 50;
 /// and why the aggregate is a maximum rather than a mean are said at `WAVE_BUCKET_SECONDS`; this
 /// is the arithmetic those sentences need in order to be true.
 struct Bins<'a> {
-    emit: &'a dyn Fn(WaveMsg),
+    emit: &'a mut dyn FnMut(WaveMsg),
     /// Where the next bucket closes, held as `boundary_k = k * rate / WAVE_DENOM` and compared
     /// against `frame * WAVE_DENOM`. Integer rather than floating point because a 20 ms bucket is
     /// 882 frames at 44.1 kHz, 960 at 48 kHz and 220.5 at 11.025 kHz: a float accumulator drifts
@@ -286,7 +355,7 @@ struct Bins<'a> {
 }
 
 impl<'a> Bins<'a> {
-    fn new(declared: f64, emit: &'a impl Fn(WaveMsg)) -> Self {
+    fn new(declared: f64, emit: &'a mut impl FnMut(WaveMsg)) -> Self {
         Bins {
             emit,
             next_boundary: 0,
@@ -410,4 +479,191 @@ impl<'a> Bins<'a> {
         });
         WaveMsg::Done
     }
+}
+
+// ==================== WAVEFORM DISK CACHE ====================
+// The same peaks, decoded once and written to disk so the second opening of a long file does not
+// decode it again. A 3-hour file is about 540,000 buckets: 2.2 MB of f32 raw, far less once lz4
+// has been through it, because silence, room tone and steady music all compress to a fraction.
+//
+// Keyed on the video's own identity: path plus size plus modification time. A file that has been
+// replaced or re-encoded never answers for an older one. Anything unreadable, undecompressible or
+// mismatched is treated as absent rather than as an error, because the honest answer is a decode
+// and the honest answer is always available.
+//
+// Everything here answers Option or nothing and prints nothing. A cache that cannot be written is a
+// cache that will not be there next time, which is a slower open and nothing else.
+
+/// The header in front of every cache file. The peaks themselves follow as raw lz4 bytes, not as
+/// JSON, because serde_json would write a `Vec<u8>` as an array of numbers.
+#[derive(Serialize, Deserialize)]
+struct WaveCacheHeader {
+    /// Bytes of the video file when the decode ran.
+    file_size: u64,
+    /// Modification time of the video file, as unix seconds.
+    file_mtime: u64,
+    /// Seconds of decoded audio, from the same frame counter the final `Meta` carries.
+    duration_seconds: f64,
+    /// `WAVE_BUCKET_SECONDS`, stated so a change of grid invalidates old files by itself.
+    bucket_seconds: f64,
+    /// Loudest peak in the file, so the page normalises exactly as it would on a fresh decode.
+    max_peak: f32,
+}
+
+/// The three numbers the cache is judged against, read from the file itself.
+fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    let meta = fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some((meta.len(), mtime))
+}
+
+/// Beside the state file rather than beside the executable, which the installer may own read-only.
+fn cache_dir() -> Option<PathBuf> {
+    let base = if cfg!(target_os = "windows") {
+        PathBuf::from(std::env::var_os("APPDATA")?)
+    } else if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support")
+    } else {
+        let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
+        let home = std::env::var_os("HOME")?;
+        PathBuf::from(xdg.unwrap_or(home)).join(".config")
+    };
+    Some(base.join("Dr.Player").join("waveforms"))
+}
+
+/// One file per video: the hash of its full path.
+///
+/// Hashed rather than sanitised because a path can hold anything at all, including characters no
+/// filesystem accepts, and two different paths must not share one file. `DefaultHasher` is not
+/// cryptographic and this is not a security boundary: a stable 64-bit identity for one string, and
+/// the size and mtime inside the header are what actually judge a hit.
+fn cache_path_for(path: &Path) -> Option<PathBuf> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    Some(cache_dir()?.join(format!("{:016x}.wav", hasher.finish())))
+}
+
+/// A complete waveform for this file, if a valid one is on disk. `None` for every reason there is
+/// no usable cache, with no way to tell them apart from outside because there is nothing to do
+/// about any of them: the caller decodes the file.
+pub fn load(path: &Path) -> Option<(Vec<WavePeak>, f64, f64, f32)> {
+    let mut file = fs::File::open(cache_path_for(path)?).ok()?;
+
+    let mut magic = [0u8; 8];
+    file.read_exact(&mut magic).ok()?;
+    if &magic != WAVE_CACHE_MAGIC {
+        return None;
+    }
+
+    let mut len_buf = [0u8; 4];
+    file.read_exact(&mut len_buf).ok()?;
+    let header_len = u32::from_le_bytes(len_buf) as usize;
+    // Larger than any header this writes is a corrupt file. Capped rather than trusted, so a bad
+    // length cannot ask for an unbounded allocation on the way to failing.
+    if header_len == 0 || header_len > 4096 {
+        return None;
+    }
+    let mut header_json = vec![0u8; header_len];
+    file.read_exact(&mut header_json).ok()?;
+    let header: WaveCacheHeader = serde_json::from_slice(&header_json).ok()?;
+
+    // The same file, and the same grid the peaks were measured in.
+    let (size, mtime) = file_identity(path)?;
+    if header.file_size != size || header.file_mtime != mtime {
+        return None;
+    }
+    if header.bucket_seconds != WAVE_BUCKET_SECONDS || header.duration_seconds <= 0.0 {
+        return None;
+    }
+
+    // The rest of the file is the peaks. Capped for the same reason as the header.
+    let mut peaks_z: Vec<u8> = Vec::new();
+    file.read_to_end(&mut peaks_z).ok()?;
+    if peaks_z.is_empty() || peaks_z.len() > 256 * 1024 * 1024 {
+        return None;
+    }
+    let bytes = lz4_flex::decompress_size_prepended(&peaks_z).ok()?;
+    // Four bytes to a peak, little-endian, the order the decoder produced them in.
+    if bytes.is_empty() || bytes.len() % 4 != 0 {
+        return None;
+    }
+    let peaks: Vec<WavePeak> = bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    if peaks.is_empty() {
+        return None;
+    }
+    Some((
+        peaks,
+        header.duration_seconds,
+        header.bucket_seconds,
+        header.max_peak,
+    ))
+}
+
+/// Write one waveform to disk, replacing whatever was there.
+///
+/// Beside itself and renamed over it, so a write cut short by a kill or a full disk leaves the
+/// previous file whole rather than half of a new one. Every failure is silent and means the next
+/// open decodes the file, which is the state of having no cache.
+pub fn save(
+    path: &Path,
+    peaks: &[WavePeak],
+    duration_seconds: f64,
+    bucket_seconds: f64,
+    max_peak: f32,
+) {
+    let Some(cache_path) = cache_path_for(path) else {
+        return;
+    };
+    if peaks.is_empty() || duration_seconds <= 0.0 {
+        return;
+    }
+    let Some((size, mtime)) = file_identity(path) else {
+        return;
+    };
+
+    let mut bytes: Vec<u8> = Vec::with_capacity(peaks.len() * 4);
+    for p in peaks {
+        bytes.extend_from_slice(&p.to_le_bytes());
+    }
+    let peaks_z = lz4_flex::compress_prepend_size(&bytes);
+
+    let header = WaveCacheHeader {
+        file_size: size,
+        file_mtime: mtime,
+        duration_seconds,
+        bucket_seconds,
+        max_peak,
+    };
+    let Ok(header_json) = serde_json::to_vec(&header) else {
+        return;
+    };
+
+    if let Some(dir) = cache_path.parent() {
+        if fs::create_dir_all(dir).is_err() {
+            return;
+        }
+    }
+    let mut staged = cache_path.as_os_str().to_owned();
+    staged.push(".new");
+    let staged = PathBuf::from(staged);
+    let written = (|| {
+        let mut f = fs::File::create(&staged).ok()?;
+        f.write_all(WAVE_CACHE_MAGIC).ok()?;
+        f.write_all(&(header_json.len() as u32).to_le_bytes()).ok()?;
+        f.write_all(&header_json).ok()?;
+        f.write_all(&peaks_z).ok()?;
+        f.sync_all().ok()
+    })();
+    if written.is_none() {
+        return;
+    }
+    let _ = fs::rename(&staged, &cache_path);
 }

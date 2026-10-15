@@ -1,6 +1,6 @@
 [package]
 name = "dr-player"
-version = "3.1.0"
+version = "3.2.0"
 edition = "2021"
 
 [dependencies]
@@ -12,6 +12,9 @@ wry = { version = "0.39", features = ["fullscreen"] }
 tao = "0.28"
 ico = "0.3"
 serde_json = "1"
+# Waveform disk cache: f32 peaks -> lz4 bytes. serde with derive for the small JSON header.
+serde = { version = "1", features = ["derive"] }
+lz4_flex = "0.9"
 rand = "0.8"
 # One HTTPS GET of one JSON document per launch, so the client is here for its TLS stack and for
 # very little else: rustls with ring, which keeps OpenSSL out of a Windows binary that gets shipped

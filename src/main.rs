@@ -773,47 +773,64 @@ body.fastmode .fast-panel {
     cursor: pointer;
     position: relative;
 }
-/* 35% white on the #111114 backing, which composites to #646466 and is 3.2:1 on it: the 3:1 a
-   control has to reach against the surface it sits on. It is the unfilled part of the track, not an
-   indicator, but it is what tells the owner there is a timeline to press. */
+/* A thin center line, 2px on the #111114 backing: 35% white composites to #646466, the 3:1
+   a control has to reach against the surface it sits on. Thin on purpose — it is the exact spine
+   the waveform below grows around, so decoded waves appear in place with no layout shift and no
+   swap between two different-looking bars. Always visible: the canvas behind only ever adds the
+   audio texture, never replaces this line. */
 .seek-track {
     width: 100%;
-    height: 4px;
+    height: 2px;
     background: rgba(255,255,255,0.35);
-    border-radius: 2px;
+    border-radius: 1px;
     position: relative;
     transition: height 0.12s;
+    z-index: 2;
 }
 .seekbar-container:hover .seek-track {
-    height: 6px;
+    height: 3px;
 }
-/* The waveform, which is the same control with the track's own audio drawn across it, and which
-   exists only once a decoder has found some. 24 tall is the number the paint below is written
-   against: the container's floor is 28, so 24 leaves 2px of the row's own backing above and below
-   the tallest column and the 41px row is not moved by a pixel.
+/* The played portion: a white fill pinned to the left edge, its width written from script on every
+   timeupdate. This is the one element that says where in the file the picture is, and it answers
+   whether or not any audio has been decoded yet. */
+.seek-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 0%;
+    background: #fff;
+    border-radius: 2px;
+    pointer-events: none;
+}
+/* The playhead: a vertical tick on the same center as everything else, 18px tall in a 28px
+   row so it clears the tallest wave column without touching the buttons beside it. Always
+   visible rather than hover-only, because the position has to read at a glance on a file whose
+   waveform has not arrived yet. 2px wide like the line it stands on, so played-vs-unplayed reads
+   from the fill and the waves on either side of it rather than from a dot sitting on top. */
+.seek-tick {
+    position: absolute;
+    top: 50%;
+    left: 0%;
+    width: 2px; height: 18px;
+    border-radius: 1px;
+    background: #fff;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+}
+/* The waveform texture behind the progress line, drawn once batches arrive and filling in from the
+   left while the decode runs. 24 tall against the container's 28px floor, so the tallest column
+   keeps 2px of the row's own backing above and below it and the 41px row never moves.
 
-   Absolute, with both horizontal offsets declared, for three reasons at once. Its left edge is
-   therefore the container's left edge, which is what the seek mapping below measures against: a
-   canvas given any padding, border or inset would shift that mapping's zero and every seek would
-   land late, by more the further right it was pressed, with nothing anywhere to say so. width:
-   auto is stated rather than left out because a canvas carries an intrinsic 300 by 150, and a
-   300px-wide flex item in this row pushes every button to the right of it along, which nobody
-   would read as a missing CSS declaration. And being out of flow it contributes nothing to the
-   container's height, so the 28px that container has always floored itself at, and therefore
-   every button's y, is the number it was before this rule existed. pointer-events: none keeps the
-   press on the container, which is what the 28px hit area and the nine-pixel bottom margin above
-   both rest on.
+   Behind the track (z-index 1 under the track's 2) rather than in place of it: the line, the fill
+   and the knob above are what say where the picture is, and the canvas only ever adds what the
+   audio looks like. Its background is transparent — clearRect, never a fill — so where nothing has
+   been decoded yet the plain bar simply shows through, and the bar is complete from the first
+   frame rather than only once the decode finishes.
 
-   The two greys are values already derived in this file rather than two new ones. The unplayed one
-   is exactly the track's: 35% white on the #111114 backing composites to #646466, 3.2:1, the 3:1 a
-   control has to reach, so the comment above .seek-track and the one at .vol-slider both stay true
-   and no second derivation exists to fall out of date. The played one is #fff, 18.9:1 on the same
-   backing, which is also what the playhead is drawn in so that it stays the same white against
-   either side of the boundary.
-
-   The two states are one class on the container rather than two independent shows, so the bar can
-   never be half in each: the line is a real element being hidden and the canvas is a real element
-   being shown, and nothing here is ever drawn and then erased. */
+   Absolute with both horizontal offsets declared so its left edge is the container's left edge,
+   which is what the seek mapping below measures against. width: auto is stated because a canvas
+   carries an intrinsic 300 by 150, and a 300px-wide flex item in this row would push every button
+   beside it along. pointer-events: none keeps the press on the container and its 28px hit area. */
 #seek-wave {
     position: absolute;
     left: 0; right: 0;
@@ -823,8 +840,8 @@ body.fastmode .fast-panel {
     height: 24px;
     display: none;
     pointer-events: none;
+    z-index: 1;
 }
-#seekbar-container.waveform .seek-track { display: none; }
 #seekbar-container.waveform #seek-wave { display: block; }
 
 /* Flat chips on the opaque backing, no tint of their own: a translucent fill over a translucent bar
@@ -1726,12 +1743,13 @@ body.drawmode #hud {
         <span class="seek-time" id="tc">00:00:00</span>
 
         <div class="seekbar-container" id="seekbar-container">
-            <!-- The plain line and the waveform are both always in the DOM and the container
-                 carries one class that chooses between them, so the fallback is a real element
-                 being shown rather than a drawn state being erased. Neither is named, focusable
-                 or given a role: they are the same unnamed generic nodes the bar has always been,
-                 so nothing leaves the accessibility tree when one replaces the other. -->
-            <div class="seek-track" id="seek-track"></div>
+            <!-- The plain line is always in the DOM and always visible: fill and tick say where
+                 the picture is from the first frame, waveform or not. The canvas behind it only
+                 ever adds the audio texture, so neither is named, focusable or given a role. -->
+            <div class="seek-track" id="seek-track">
+                <div class="seek-fill" id="seek-fill"></div>
+                <div class="seek-tick" id="seek-tick"></div>
+            </div>
             <canvas id="seek-wave"></canvas>
         </div>
 
@@ -2533,6 +2551,8 @@ function fmt(s) {
    exactly WCAG 2.2's 24 by 24 floor with no slack. */
 const seekContainer = document.getElementById('seekbar-container');
 const seekTrackEl = document.getElementById('seek-track');
+const seekFillEl = document.getElementById('seek-fill');
+const seekTickEl = document.getElementById('seek-tick');
 const waveCanvas = document.getElementById('seek-wave');
 const waveCtx = waveCanvas.getContext('2d');
 const tcEl = document.getElementById('tc');
@@ -2541,8 +2561,14 @@ let seeking = false;
 
 function updateSeekbar() {
     if (!vid.duration) return;
+    // The bar's own position, answered here and nowhere else: a white fill and a tick, moved on
+    // every timeupdate whether or not any audio has been decoded yet. This is what makes the bar
+    // a working seek bar on a 3-hour file whose decode is still running.
+    const pos = Math.max(0, Math.min(1, vid.currentTime / vid.duration));
     tcEl.textContent = fmt(vid.currentTime);
     trEl.textContent = '-' + fmt(vid.duration - vid.currentTime);
+    seekFillEl.style.width = (pos * 100) + '%';
+    seekTickEl.style.left = (pos * 100) + '%';
     paintWaveform();
 }
 vid.addEventListener('timeupdate', updateSeekbar);
@@ -2591,29 +2617,28 @@ document.addEventListener('mouseup', () => { seeking = false; });
 const WAVE_CSS_HEIGHT = 24;      // the height: 24px in the #seek-wave rule above
 const WAVE_MIN_HALF_PX = 1;      // one device pixel: silence, and not yet decoded
 const WAVE_QUIET_FLOOR = 0.002;  // under this the file is silence, not a quiet recording
-const WAVE_PLAYED = '#ffffff';   // 18.9:1 on #111114, and the playhead's own colour
-const WAVE_UNPLAYED = '#646466'; // 35% white on #111114, 3.2:1: the track's own value
+// Played bars are the fill's own white and unplayed bars are the track's own 35% white, so the
+// waves carry position the same way the line does: left of the tick white, right of it grey. Same
+// center, same tick, same mapping — the decoded region is the thin line grown tall, not a second
+// control overlaid on the first.
+const WAVE_PLAYED = '#ffffff';
+const WAVE_UNPLAYED = 'rgba(255,255,255,0.35)';
 
 let wavePeaks = [];
 let waveBucket = 0;
 let waveDuration = 0;
 let waveMax = 0;
 
-function showWave(on) {
-    // One class, so the plain line and the canvas can never both be showing or both be hidden.
-    seekContainer.classList.toggle('waveform', !!on);
-}
-
 function paintWaveform() {
-    // Nothing decoded yet, or nothing to decode into: the bar is the plain line and this costs
-    // one test. That is the whole of what a file with no audio costs, four times a second.
+    // Nothing decoded yet, or nothing to decode into: the plain bar below is already complete, so
+    // there is nothing to add and this costs one test. That is the whole of what a file with no
+    // audio costs, four times a second.
     //
     // vid.duration is NaN until loadedmetadata, and for a file the engine refuses to play it stays
-    // NaN for the whole session, because onerror only rewrites the title. The guard above is
-    // therefore also the thing that decides which of the two states the bar is in, and it is the
-    // reason the class below is set here rather than when the peaks arrived. Every term in it is a
-    // "not yet" that only ever resolves into ready, so the toggle is reached by the repaints that
-    // fill it in and by nothing else.
+    // NaN for the whole session, because onerror only rewrites the title. The guard is therefore
+    // also what keeps the canvas hidden on the three fixtures in exactly that state
+    // (sample-5s.avi, sample-15s.avi, test1-matroskaconformance.mkv): peaks without a duration is
+    // a canvas with no time axis, and an empty 28px gap is what the bar must never become.
     if (!waveBucket || !wavePeaks.length || !vid.duration) return;
 
     // Measured on every call rather than cached behind a resize listener, because this is the one
@@ -2635,17 +2660,15 @@ function paintWaveform() {
 
     // Device pixels throughout, because fillRect paints into the backing store and no scale is
     // applied to this canvas's context. At DPR 1 that is floor(24/2) - 1 = 11, so a full column is
-    // 22 of the 24 and the playhead keeps a pixel of air above and below it.
+    // 22 of the 24 with a pixel of air above and below it.
     const mid = Math.floor(H / 2);
     const maxHalf = Math.max(WAVE_MIN_HALF_PX, mid - 1);
     const minHalf = WAVE_MIN_HALF_PX;
 
-    // Where the audio ends, measured against what is actually known: while the decode is still
-    // running that is simply how far it has got, and afterwards it is the decoded length. Taking
-    // the smaller of the two means the boundary only ever moves right, and it moves to the true
-    // end of the track when the last batch lands. A file whose audio is shorter than its video
-    // shows the waveform stopping where the sound stops and a flat run to the right, which is
-    // information rather than a defect.
+    // Where the decode has got to, measured against what is actually known: while it is still
+    // running that is simply how far it has got, and afterwards it is the decoded length. Columns
+    // past it are left transparent rather than drawn flat, so the bar fills in from the left over
+    // the following seconds and the undecoded right side is the plain line, not an absence.
     const received = wavePeaks.length;
     const decoded = received * waveBucket;
     const audioEnd = waveDuration > 0 ? Math.min(waveDuration, decoded) : decoded;
@@ -2653,61 +2676,45 @@ function paintWaveform() {
     const quiet = waveMax < WAVE_QUIET_FLOOR;
     const duration = vid.duration;
     const progressSeconds = vid.currentTime;
-    const playX = Math.max(0, Math.min(W, Math.round((progressSeconds / duration) * W)));
 
-    // The one class that chooses between the two states is set here, after every guard above and
-    // not on the batch that arrived. A file whose audio decodes and whose video the webview refuses
-    // has peaks and no duration at all: sample-5s.avi, sample-15s.avi and
-    // test1-matroskaconformance.mkv are three committed fixtures in exactly that state, and
-    // toggling on arrival hid the plain line behind a canvas this function then returned out of,
-    // which is an empty 28px gap where the only timeline control was.
-    showWave(true);
+    seekContainer.classList.add('waveform');
     waveCtx.clearRect(0, 0, W, H);
     for (let x = 0; x < W; x++) {
         const t0 = (x / W) * duration;
+        if (t0 >= audioEnd) continue;
         const t1 = ((x + 1) / W) * duration;
-        // Past the end of the audio there is no sound to draw, and the minimum line is the truth
-        // about it rather than an absence.
-        let hh = minHalf;
-        if (t0 < audioEnd) {
-            // Max over the buckets this column covers, never the mean and never the last: the
-            // mean drops a transient that lands in one bucket of five, and the last depends on
-            // how the rounding fell. A column wider than one bucket gives its neighbours the
-            // same value and the bar is flat-topped between them, which is also honest.
-            const i0 = Math.floor(t0 / waveBucket);
-            const i1 = Math.max(i0 + 1, Math.ceil(t1 / waveBucket));
-            const stop = Math.min(i1, received);
-            let peak = 0;
-            for (let i = i0; i < stop; i++) {
-                if (wavePeaks[i] > peak) peak = wavePeaks[i];
-            }
-            // i0 at or past what has arrived is the decode not having reached this time yet,
-            // which is what fills the bar in from the left over the following seconds.
-            const value = (quiet || i0 >= received || waveMax <= 0) ? 0 : peak / waveMax;
-            hh = Math.round(value * maxHalf);
-            if (hh < minHalf) hh = minHalf;
-            if (hh > maxHalf) hh = maxHalf;
+        // Max over the buckets this column covers, never the mean and never the last: the mean
+        // drops a transient that lands in one bucket of five, and the last depends on how the
+        // rounding fell.
+        const i0 = Math.floor(t0 / waveBucket);
+        const i1 = Math.max(i0 + 1, Math.ceil(t1 / waveBucket));
+        const stop = Math.min(i1, received);
+        let peak = 0;
+        for (let i = i0; i < stop; i++) {
+            if (wavePeaks[i] > peak) peak = wavePeaks[i];
         }
-        // The played and unplayed colours split between two columns rather than across one, so
-        // the playhead at the same x always lands on the change instead of half a pixel into it.
+        // Past what has arrived is the decode not having reached this time yet; the continue above
+        // already left it transparent.
+        if (i0 >= received) continue;
+        const value = (quiet || waveMax <= 0) ? 0 : peak / waveMax;
+        let hh = Math.round(value * maxHalf);
+        if (hh < minHalf) hh = minHalf;
+        if (hh > maxHalf) hh = maxHalf;
+        // The played and unplayed colours split between two columns rather than across one, so the
+        // tick at the same x always lands on the change instead of half a pixel into it.
         waveCtx.fillStyle = t0 < progressSeconds ? WAVE_PLAYED : WAVE_UNPLAYED;
         waveCtx.fillRect(x, mid - hh, 1, hh * 2);
     }
-    // The playhead is drawn here and is not an element, because its x is
-    // round(progress * W) against the same backing store the columns are on: a div at left: N%
-    // is not sub-pixel and cannot be snapped to this bucket grid.
-    waveCtx.fillStyle = WAVE_PLAYED;
-    waveCtx.fillRect(playX, 0, Math.max(1, Math.round(dpr)), H);
 }
 
 window.setWaveform = rec => {
     if (rec.failed) {
-        // A decode that could not finish gives the plain line back and forgets everything it
-        // had: half a waveform measured against the video's clock claims audio where there is
+        // A decode that could not finish leaves the plain bar exactly as it was and forgets what
+        // it had: half a waveform measured against the video's clock claims audio where there is
         // none. This is also the one path a file with no audio, an unreadable track and a
         // container this build cannot demux all arrive at, and none of them is anything to show.
         wavePeaks = []; waveBucket = 0; waveDuration = 0; waveMax = 0;
-        showWave(false);
+        seekContainer.classList.remove('waveform');
         return;
     }
     // The bucket width is stated by the sender rather than assumed here, so there is one number
@@ -2724,8 +2731,8 @@ window.setWaveform = rec => {
             if (p > waveMax) waveMax = p;
         }
     }
-    // The waveform class is not set here. paintWaveform is what knows whether there is anything to
-    // paint into yet, and a batch that arrived before loadedmetadata does not.
+    // Shown on arrival, progressively: the canvas is what knows whether there is anything to paint
+    // into yet, and a batch that arrived before loadedmetadata waits for the duration.
     paintWaveform();
 };
 

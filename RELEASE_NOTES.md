@@ -16,6 +16,22 @@ and deleted wholesale by 75e9ab8, which replaced this file with a single v1.0.0 
 shipped with no entry at all, and none has been added since. Each section says which of the two it is
 at the top.
 
+Dr.Player v3.2.0
+
+The seek bar now always shows position, waves arrive progressively on top of it, and finished waveforms are cached to disk so the second opening draws instantly.
+
+Always-working seek bar
+The strip is a thin line with a white fill and a vertical playhead tick from the first frame: position, seeking and the time readouts work whether or not any audio has been decoded yet. No more dead bar on long files whose decode is still running.
+
+Progressive waves with no transition
+The waveform draws behind that same line on the same center, filling in left-to-right as the background decode runs, played side white and unplayed side grey. The decoded region is the line grown tall rather than a second control swapped in, so nothing jumps when waves arrive.
+
+Waveform disk cache
+A finished decode is kept in `%APPDATA%/Dr.Player/waveforms` as one small lz4 file per video (about 18 KB for a 90-second file, on the order of 1 MB for a 3-hour one), re-validated against the file's size and modification time. Full-length decode with no duration cap replaces the old 2-hour cutoff.
+
+Audio support table
+The README now lists which audio gets waves (stereo AAC-LC, MP3, Vorbis, FLAC/PCM) and which keeps the working bar without waves (multichannel AAC, HE-AAC, AC-3/DTS, Opus, no audio): symphonia's AAC decoder takes stereo and below only.
+
 Dr.Player v3.1.0
 
 A visual and functional upgrade to the seek bar, rendering the file's own audio waveform directly on the timeline with background decoding, resilient fallback, and no external dependencies.

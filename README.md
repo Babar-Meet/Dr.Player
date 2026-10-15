@@ -43,7 +43,7 @@ The project is intended for:
 
 - **Windows file associations** — the installer registers Dr.Player for `.mp4`, `.m4v`, `.mov` and `.webm`, so it appears in Explorer's Open with menu, in the Open with dialog, and in Settings > Default apps. Windows reserves the choice itself, in `Explorer\FileExts\<ext>\UserChoice`, which the installer writes nothing near, so it takes nothing away from a program you already use
 - **Video playback** with play/pause, seek, frame stepping, volume control
-- **Waveform seek bar** — the seek strip draws the actual audio waveform of the file, decoded on a background thread so clicking to seek is available from the first moment the window opens. The waveform fills in from the left over a few seconds as the decode runs, tall where the audio is loud and flat where it is quiet. Files with no audio, or containers the decoder cannot read, fall back silently to the plain line that the bar always was; there is no spinner, no error, and no empty box
+- **Waveform seek bar** — the seek strip is a thin line with a fill and a playhead tick from the first frame, so position, seeking and the time readouts work whether or not any audio has been decoded yet. Behind it, the file's own audio waveform is decoded on a background thread and fills in from the left as batches arrive, tall where the audio is loud and flat where it is quiet, played side white and unplayed side grey on the same center line, so there is no swap between two different-looking bars. A finished decode is kept on disk as one small compressed file per video, so the second opening draws instantly; a file that changed size or modification time is decoded again. Audio the extractor cannot decode — multichannel surround, HE-AAC, AC-3/DTS, or no audio at all — keeps the working thin bar with no waves; there is no spinner, no error, and no empty box. The exact list is under Known Limitations
 - **Frame stepping at the file's own rate** — the step is measured from the video itself through `requestVideoFrameCallback`, with the old fixed 1/60 second behind it for an engine that never calls back, so 24, 25, 30, 50, 60 and 120 fps source all step by one frame. The video element is still not asked to seek to a frame and does not promise to land on one
 - **Resume playback position** — a chip over the picture with one button on it, labelled `Continue from 00:12:34`, offering to carry on from where a file was left, while the video plays from 0:00 as always. Written on pause and when the window is closed through its own close button. Cleared rather than written when a video reaches its end, so a finished file is never offered back, and a file reaching its end is the only thing that clears one at all: the chip's own ten seconds and a click anywhere on the picture both take the chip away and change nothing else, because neither of them is a refusal. Never written while loop is on. It is not put up at all when there is nothing worth putting it up for, and none of the four is a decision the viewer makes: a position barely into the file, where a prompt would be noise over the opening; a file the viewer has already watched most of the way through and is opening again to watch it whole, which is why the usual rule that hides only the last few seconds is the wrong one here; a stored position past where the file now ends, which is what a file that has since been replaced by a shorter one looks like; and an entry whose recorded size no longer matches the file on disk, so a name that now belongs to different video inherits nothing. Hiding the chrome on purpose, with H or the eye button, takes the chip down with it, because someone who asked for a clean screen should not be left with a button over it, and bringing the chrome back inside the chip's own ten seconds brings the chip back. The three second idle fade leaves it alone, because hiding it there too would cut a ten second window down to three and the offer would be a flash rather than something to read
 - **Window size and position memory** — the last size and position are restored on the next launch, with the position dropped and the window opened centred on the primary monitor at the same size if the remembered rectangle would not land entirely on a monitor that is connected now, which matters more here than in most players because this window is frameless and a restored window on a monitor that has gone has no title bar to drag it back with. A remembered size that comes back under 200x120 falls back to the default instead, because that is the smallest shape that still holds both bars without them overlapping, so a remembered window is always big enough to grab. No window geometry is recorded while the window is full or while fill mode is shaping it, because then the window's size belongs to the monitor or to the video rather than to the owner. A playback position is still written in those two states, which rewrites the whole state file and carries the last remembered rectangle over it untouched, so what is on file goes on saying what the window looked like when its size was the owner's own
@@ -87,7 +87,8 @@ The project is intended for:
 | Random | rand 0.8 |
 | Icon Loading | ico 0.3 |
 | Build Resources | winres 0.1 (Windows .ico embedding) |
-| Audio Decode | symphonia 0.6 (AAC, MP3, isomp4, plus Vorbis, FLAC, ADPCM, PCM, MKV, OGG, WAV from defaults) |
+| Audio Decode | symphonia 0.6 (stereo AAC-LC, MP3, isomp4, plus Vorbis, FLAC, ADPCM, PCM, MKV, OGG, WAV from defaults; multichannel and HE-AAC refused by its AAC decoder — see Known Limitations) |
+| Waveform cache | lz4_flex 0.9 (peaks compressed per video) + serde 1 (cache header) |
 | TLS client | reqwest 0.12 with rustls-tls (no OpenSSL) |
 | Installer | NSIS (installer/DrPlayer.nsi) |
 | File associations | Windows registry under `HKCU\Software\Classes`, plus one value under `HKCU\Software\RegisteredApplications`, written by the installer, per user, never elevated |
@@ -466,7 +467,8 @@ Every failure is silent and none of them can stop the app: a missing file, a fil
 - `WAVE_CSS_HEIGHT = 24` — height in CSS pixels of the waveform canvas (`#seek-wave`)
 - `WAVE_QUIET_FLOOR = 0.002` — linear amplitude threshold below which track is rendered as silence
 - `WAVE_MIN_HALF_PX = 1` — minimum half-height in device pixels (silence and not yet decoded)
-- `WAVE_MAX_SECONDS = 7200.0` — maximum decoded audio duration (2 hours cap)
+- `WAVE_MAX_SECONDS = f64::MAX` — no duration cap: a long track is decoded in full because the disk cache pays the cost once. The file's own end is the only limit
+- `WAVE_CACHE_MAGIC = b"DRWAVE01"` — first eight bytes of every cache file in `%APPDATA%/Dr.Player/waveforms` (one lz4-compressed peaks file per video, keyed on path hash and judged against the file's size and modification time)
 - Content Security Policy embedded in an HTML `<meta>` tag, as one string: `default-src 'self' 'unsafe-inline' http://127.0.0.1:*; media-src http://127.0.0.1:*; connect-src http://127.0.0.1:*; script-src 'unsafe-inline';`
 
 ### `.gitignore`
@@ -502,7 +504,9 @@ Every failure is silent and none of them can stop the app: a missing file, a fil
 | `serde_json` | 1 | JSON serialization (escapes URLs/titles for JS) |
 | `rand` | 0.8 | Random token generation for video URL |
 | `reqwest` | 0.12 | HTTPS client for the optional update check. Default features off, rustls-tls on, so a Windows binary needs no OpenSSL |
-| `symphonia` | 0.6 | Audio demuxing and decoding for seek bar waveform. AAC, MP3, isomp4 requested; default features kept on so MKV, OGG, RIFF/WAV, Vorbis, FLAC, ADPCM and PCM decode rather than falling back |
+| `symphonia` | 0.6 | Audio demuxing and decoding for seek bar waveform. Stereo AAC-LC, MP3, isomp4 requested; default features kept on so MKV, OGG, RIFF/WAV, Vorbis, FLAC, ADPCM and PCM decode rather than falling back. Its AAC decoder takes stereo and below only — multichannel and HE-AAC fall back (see Known Limitations) |
+| `serde` | 1 | Derive macros for the small JSON header in front of every waveform cache file |
+| `lz4_flex` | 0.9 | Pure-Rust lz4 compression for the cached peaks (no native library, nothing to ship) |
 
 ### Internal Dependencies
 
@@ -723,10 +727,10 @@ The application relies on system-native webviews via the `wry` library, which in
 
 ## Current Status
 
-**The version `Cargo.toml` carries now is 3.1.0**, and `RELEASE_NOTES.md` opens with what that release changed: the waveform seek bar with background audio decode and fallback to the plain line. See Release order above.
+**The version `Cargo.toml` carries now is 3.2.0**, and `RELEASE_NOTES.md` opens with what that release changed: the always-working thin seek bar with progressive waves on top of it, the waveform disk cache, and the audio support table. See Release order above.
 
 Evidence:
-- `version = "3.1.0"` in `Cargo.toml`, which is what the installer is told to stamp on the next build
+- `version = "3.2.0"` in `Cargo.toml`, which is what the installer is told to stamp on the next build
 - An NSIS installer whose version is typed by hand on the `makensis` command line. Nothing reads `Cargo.toml` at build time, so the two match only if whoever types the number types the one in `Cargo.toml`, and a bare `makensis` falls back to the sentinel `0.0.0-UNSET`. See Release order above
 - Windows file associations registered per user for `.mp4`, `.m4v`, `.mov` and `.webm`, from the installer's optional components section, with no write anywhere near `UserChoice`
 - Manual QA guide in `TESTING.md` and sample videos in `TESTING_videos/`
@@ -738,7 +742,21 @@ Evidence:
 
 ## Known Limitations
 
-- **Audio waveform cannot be produced for unsupported audio streams or video-only files**: If a file lacks an audio stream, or if its container/codec cannot be demuxed or decoded by symphonia, the seek bar silently falls back to the original plain line. There is no error message, no dialog, and no empty box. Audio tracks longer than 2 hours (`WAVE_MAX_SECONDS = 7200.0`) are capped cleanly, drawing what was decoded and rendering a flat line across the remainder.
+- **Audio waveform is drawn only for audio the extractor can decode**: stereo or mono AAC-LC, MP3, Vorbis, FLAC, WAV/PCM and ADPCM get waves; everything else keeps the working thin bar (fill, tick, seeking and playback all work — playback is the engine's own decoders and is unaffected). There is no error message, no dialog, and no empty box. The table:
+
+  | Audio in the file | Waves? | Reason |
+  |---|---|---|
+  | Stereo or mono AAC-LC | Yes | the common rip: phone recordings, YouTube-style encodes, stereo BluRay rips |
+  | MP3 stereo or mono | Yes | e.g. the audio in `.avi` fixtures |
+  | Vorbis in WebM/MKV | Yes | e.g. `flower.webm`, `rabbit320.webm` |
+  | FLAC, WAV/PCM, ADPCM | Yes | lossless and raw formats |
+  | AAC with 3+ channels (5.1/7.1 surround) | No | symphonia's AAC decoder accepts stereo and below only — more than 2 channels is refused as too complex, so multichannel film rips fall back to the bar |
+  | HE-AAC / AAC with SBR | No | refused by the same decoder for the same reason |
+  | AC-3, E-AC-3, DTS | No | no decoder for these is compiled in (common in BluRay rips) |
+  | Opus | No | no decoder for this is compiled in |
+  | No audio track, or a container symphonia cannot demux | No | nothing to draw, nothing to decode |
+
+  A finished decode is kept in `%APPDATA%/Dr.Player/waveforms` as one small lz4 file per video (about 18 KB for a 90-second file; a 3-hour file is on the order of 1 MB), keyed on the path and re-validated against the file's size and modification time, so the second opening draws instantly and a changed file is decoded again. The first opening of a hours-long file decodes in the background while the bar already works.
 - **Single video file**: No playlist or folder support — the player accepts only one file path
 - **Four registered file types on Windows**: `.mp4`, `.m4v`, `.mov` and `.webm`, deliberately. A type the embedded engine cannot decode does not fail politely: the `<video>` element fires `onerror`, and `Error loading video` replaces the file name in the title capsule at the top left of the window. Nothing is written to the video area, which stays black. The top bar sits at `opacity: 0` until the chrome is shown and fades three seconds after the last input, and `onerror` never brings it back, so a message that arrives after the chrome has faded stays invisible until the mouse moves; in draw mode the whole top bar is hidden outright, the close button included. The window's OS title stays `Dr.Player` throughout, since it is set once at `src/main.rs:4811` and never changed, so "Error loading video" is in-page text and not the title bar. Registering a type is a claim the app has to be able to keep, and it has to hold on every machine carrying the app, not only the one it was tested on. MKV is the case in point: it plays on a current Evergreen Runtime, and `TESTING_videos/` ships two `.mkv` files for exactly that check, but an older Evergreen Runtime without Matroska support would refuse it, so it is deliberately not registered. `.avi`, `.wmv`, `.flv`, `.mpeg` and `.ogv` are absent because neither engine plays them at all
 - **HEVC inside MP4 is conditional**: Windows needs the HEVC Video Extension installed and a working decoder path. H.264 in MP4, H.264 in MOV, VP8 and VP9 in WebM and H.264 in MKV were each played on Windows 11 with WebView2 Runtime 154; HEVC is the one combination here that keeps a documented failure mode (`0xC00DB3B3`, "Failed to create HEVC decoder instance")
